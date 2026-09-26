@@ -13,8 +13,11 @@ void main() async {
 /// Root application widget for GoalSync.
 ///
 /// Wires the centralized [AppTheme] into [MaterialApp], supports Light/Dark/System
-/// modes, and automatically routes to [DashboardPage] if a session exists,
-/// or [WelcomePage] if unauthenticated.
+/// modes, and automatically routes based on authentication state:
+/// - Authenticated  -> [DashboardPage]
+/// - Unauthenticated -> [WelcomePage]
+///
+/// Financial Onboarding is accessed exclusively via the Dashboard.
 class GoalSyncApp extends StatelessWidget {
   final Widget? home;
 
@@ -23,6 +26,8 @@ class GoalSyncApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final isAuthenticated = AuthService.instance.isLoggedIn;
+    final Widget initialScreen =
+        isAuthenticated ? const DashboardPage() : const WelcomePage();
 
     return MaterialApp(
       title: AppStrings.appName,
@@ -34,7 +39,7 @@ class GoalSyncApp extends StatelessWidget {
       themeMode: ThemeMode.system,
 
       // ── Root ───────────────────────────────────────────────
-      home: home ?? (isAuthenticated ? const DashboardPage() : const WelcomePage()),
+      home: home ?? initialScreen,
     );
   }
 }

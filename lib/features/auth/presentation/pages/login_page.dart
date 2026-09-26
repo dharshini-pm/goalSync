@@ -111,6 +111,8 @@ class _LoginPageState extends State<LoginPage> {
       if (!mounted) return;
 
       if (result.isSuccess) {
+        // Always go to the Dashboard after login.
+        // Onboarding is accessed only via the Dashboard button.
         Navigator.of(context).pushAndRemoveUntil(
           MaterialPageRoute(builder: (_) => const DashboardPage()),
           (route) => false,

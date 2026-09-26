@@ -3,6 +3,9 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:goalsync/features/auth/presentation/pages/login_page.dart';
 import 'package:goalsync/features/auth/services/auth_service.dart';
 import 'package:goalsync/features/dashboard/presentation/pages/dashboard_page.dart';
+import 'package:goalsync/features/onboarding/models/financial_profile_model.dart';
+import 'package:goalsync/features/onboarding/presentation/pages/financial_onboarding_page.dart';
+import 'package:goalsync/features/onboarding/services/financial_profile_service.dart';
 import 'package:goalsync/main.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -10,7 +13,9 @@ void main() {
   setUp(() async {
     SharedPreferences.setMockInitialValues({});
     AuthService.resetForTesting();
+    FinancialProfileService.resetForTesting();
     await AuthService.instance.init();
+    await FinancialProfileService.instance.init();
   });
 
   group('Complete GoalSync App Flows', () {
@@ -53,7 +58,8 @@ void main() {
       expect(find.byType(DashboardPage), findsNothing);
     });
 
-    testWidgets('Login with correct credentials navigates to Dashboard',
+    testWidgets(
+        'Login with incomplete onboarding opens FinancialOnboardingPage',
         (WidgetTester tester) async {
       await AuthService.instance.register(
         fullName: 'Karan Mehra',
@@ -62,6 +68,60 @@ void main() {
         email: 'karan@example.com',
         password: 'Password123',
       );
+      await AuthService.instance.logout();
+
+      await tester.pumpWidget(
+        const MaterialApp(
+          home: LoginPage(),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      await tester.enterText(
+        find.widgetWithText(TextFormField, 'Enter email or phone number'),
+        'karan@example.com',
+      );
+      await tester.enterText(
+        find.widgetWithText(TextFormField, 'Enter your password'),
+        'Password123',
+      );
+
+      await tester.tap(find.widgetWithText(ElevatedButton, 'Login'));
+      await tester.pumpAndSettle();
+
+      expect(find.byType(FinancialOnboardingPage), findsOneWidget);
+      expect(find.text('Tell us about yourself'), findsOneWidget);
+    });
+
+    testWidgets(
+        'Login with completed onboarding navigates directly to Dashboard',
+        (WidgetTester tester) async {
+      final regResult = await AuthService.instance.register(
+        fullName: 'Karan Mehra',
+        phone: '9876501234',
+        countryCode: '+91',
+        email: 'karan@example.com',
+        password: 'Password123',
+      );
+
+      // Pre-save completed financial profile
+      await FinancialProfileService.instance.saveProfile(
+        FinancialProfile(
+          userId: regResult.user!.id,
+          age: 32,
+          occupation: 'Salaried Employee',
+          dependents: 1,
+          monthlyIncome: 85000,
+          incomeType: 'Salary',
+          currentSavings: 300000,
+          monthlyFixedExpenses: 35000,
+          monthlyVariableExpenses: 20000,
+          existingLoanEmi: 10000,
+          activeLoansCount: 1,
+          completedAt: DateTime.now(),
+        ),
+      );
+
       await AuthService.instance.logout();
 
       await tester.pumpWidget(
@@ -115,7 +175,12 @@ void main() {
       await tester.pumpAndSettle();
 
       // Confirm dialog appears
-      expect(find.text('Are you sure you want to log out of GoalSync on this device?'), findsOneWidget);
+      expect(
+        find.text(
+          'Are you sure you want to log out of GoalSync on this device?',
+        ),
+        findsOneWidget,
+      );
 
       // Tap confirm "Log Out" in dialog
       await tester.tap(find.widgetWithText(ElevatedButton, 'Log Out'));
@@ -129,48 +194,74 @@ void main() {
       expect(AuthService.instance.isLoggedIn, isFalse);
     });
 
-    testWidgets('Restart application while logged in automatically opens Dashboard',
+    testWidgets(
+        'Restart application while logged in with incomplete onboarding opens FinancialOnboardingPage',
         (WidgetTester tester) async {
-      // Simulate persisted login session in SharedPreferences
       SharedPreferences.setMockInitialValues({
         'goalsync_is_logged_in': true,
         'goalsync_current_user_id': 'usr_test_123',
         'goalsync_registered_users': [
           '{"id":"usr_test_123","fullName":"Anita Roy","phone":"9811223344","countryCode":"+91","email":"anita@example.com","passwordHash":"hash123","createdAt":"2026-01-01T00:00:00.000"}'
         ],
+        // Note: goalsync_onboarding_completed_usr_test_123 is false/missing
       });
 
       AuthService.resetForTesting();
+      FinancialProfileService.resetForTesting();
       await AuthService.instance.init();
+      await FinancialProfileService.instance.init();
 
       expect(AuthService.instance.isLoggedIn, isTrue);
-      expect(AuthService.instance.currentUser?.fullName, 'Anita Roy');
 
-      // Launch root GoalSyncApp
       await tester.pumpWidget(const GoalSyncApp());
       await tester.pumpAndSettle();
 
-      // Automatically shows DashboardPage
+      expect(find.byType(FinancialOnboardingPage), findsOneWidget);
+      expect(find.text('Tell us about yourself'), findsOneWidget);
+    });
+
+    testWidgets(
+        'Restart application while logged in with complete onboarding opens Dashboard',
+        (WidgetTester tester) async {
+      SharedPreferences.setMockInitialValues({
+        'goalsync_is_logged_in': true,
+        'goalsync_current_user_id': 'usr_test_123',
+        'goalsync_onboarding_completed_usr_test_123': true,
+        'goalsync_registered_users': [
+          '{"id":"usr_test_123","fullName":"Anita Roy","phone":"9811223344","countryCode":"+91","email":"anita@example.com","passwordHash":"hash123","createdAt":"2026-01-01T00:00:00.000"}'
+        ],
+      });
+
+      AuthService.resetForTesting();
+      FinancialProfileService.resetForTesting();
+      await AuthService.instance.init();
+      await FinancialProfileService.instance.init();
+
+      expect(AuthService.instance.isLoggedIn, isTrue);
+
+      await tester.pumpWidget(const GoalSyncApp());
+      await tester.pumpAndSettle();
+
       expect(find.byType(DashboardPage), findsOneWidget);
       expect(find.text('Welcome back, Anita Roy'), findsOneWidget);
     });
 
     testWidgets('Restart application after logout opens WelcomePage',
         (WidgetTester tester) async {
-      // Session is false
       SharedPreferences.setMockInitialValues({
         'goalsync_is_logged_in': false,
       });
 
       AuthService.resetForTesting();
+      FinancialProfileService.resetForTesting();
       await AuthService.instance.init();
+      await FinancialProfileService.instance.init();
 
       expect(AuthService.instance.isLoggedIn, isFalse);
 
       await tester.pumpWidget(const GoalSyncApp());
       await tester.pump();
 
-      // Shows WelcomePage
       expect(find.text('Your money changes.'), findsOneWidget);
       expect(find.text('Get Started'), findsOneWidget);
       expect(find.byType(DashboardPage), findsNothing);

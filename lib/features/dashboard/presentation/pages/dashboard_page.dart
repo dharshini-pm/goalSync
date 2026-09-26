@@ -2,9 +2,21 @@ import 'package:flutter/material.dart';
 import '../../../../core/constants/app_colors.dart';
 import '../../../../core/constants/app_dimensions.dart';
 import '../../../auth/services/auth_service.dart';
+import '../../../financial_state/presentation/pages/financial_state_page.dart';
+import '../../../goals/models/goal_model.dart';
+import '../../../goals/presentation/pages/goals_page.dart';
+import '../../../goals/services/goal_service.dart';
+import '../../../onboarding/models/financial_profile_model.dart';
+import '../../../onboarding/presentation/pages/financial_onboarding_page.dart';
+import '../../../onboarding/services/financial_profile_service.dart';
 import '../../../profile/presentation/pages/profile_page.dart';
+import '../../../transactions/models/transaction_model.dart';
+import '../../../transactions/presentation/pages/transaction_detail_page.dart';
+import '../../../transactions/presentation/pages/transactions_page.dart';
+import '../../../transactions/services/transaction_service.dart';
 
-/// GoalSync Main Dashboard with 5-tab bottom navigation and genuine empty-state cards.
+
+/// GoalSync Main Dashboard with 5-tab bottom navigation.
 class DashboardPage extends StatefulWidget {
   const DashboardPage({super.key});
 
@@ -16,28 +28,42 @@ class _DashboardPageState extends State<DashboardPage> {
   int _currentIndex = 0;
 
   @override
+  void initState() {
+    super.initState();
+    GoalService.instance.init();
+    FinancialProfileService.instance.init();
+    TransactionService.instance.init();
+    GoalService.instance.addListener(_refresh);
+    FinancialProfileService.instance.addListener(_refresh);
+    TransactionService.instance.addListener(_refresh);
+  }
+
+  @override
+  void dispose() {
+    GoalService.instance.removeListener(_refresh);
+    FinancialProfileService.instance.removeListener(_refresh);
+    TransactionService.instance.removeListener(_refresh);
+    super.dispose();
+  }
+
+  void _refresh() => setState(() {});
+
+  @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final isDark = theme.brightness == Brightness.dark;
+    final isDark = Theme.of(context).brightness == Brightness.dark;
 
     return Scaffold(
-      backgroundColor: isDark ? AppColors.darkBackground : AppColors.lightBackground,
+      backgroundColor:
+          isDark ? AppColors.darkBackground : AppColors.lightBackground,
       body: IndexedStack(
         index: _currentIndex,
         children: [
           _HomeDashboardView(
             onNavigateToGoals: () => setState(() => _currentIndex = 1),
+            onNavigateToTransactions: () => setState(() => _currentIndex = 2),
           ),
-          const _PlaceholderModuleView(
-            moduleName: 'Goals',
-            subtitle: 'Goals module coming next',
-            icon: Icons.flag_rounded,
-          ),
-          const _PlaceholderModuleView(
-            moduleName: 'Activity',
-            subtitle: 'Activity module coming next',
-            icon: Icons.receipt_long_rounded,
-          ),
+          const GoalsPage(),
+          const TransactionsPage(),
           const _PlaceholderModuleView(
             moduleName: 'AI Copilot',
             subtitle: 'AI Copilot module coming next',
@@ -58,11 +84,7 @@ class _DashboardPageState extends State<DashboardPage> {
         ),
         child: BottomNavigationBar(
           currentIndex: _currentIndex,
-          onTap: (index) {
-            setState(() {
-              _currentIndex = index;
-            });
-          },
+          onTap: (index) => setState(() => _currentIndex = index),
           type: BottomNavigationBarType.fixed,
           backgroundColor: Colors.transparent,
           elevation: 0,
@@ -111,29 +133,38 @@ class _DashboardPageState extends State<DashboardPage> {
   }
 }
 
-/// Home tab view showing user profile summary & genuine empty-state cards.
+// ─────────────────────────────────────────────────────────────
+// Home tab body
+// ─────────────────────────────────────────────────────────────
 class _HomeDashboardView extends StatelessWidget {
   final VoidCallback onNavigateToGoals;
+  final VoidCallback onNavigateToTransactions;
 
-  const _HomeDashboardView({required this.onNavigateToGoals});
+  const _HomeDashboardView({
+    required this.onNavigateToGoals,
+    required this.onNavigateToTransactions,
+  });
 
-  void _showNotice(BuildContext context, String title, String message) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text('$title: $message'),
-        backgroundColor: AppColors.navyLight,
-        behavior: SnackBarBehavior.floating,
-        duration: const Duration(seconds: 2),
-      ),
-    );
+  String _fmt(double v) {
+    if (v >= 10000000) return '₹${(v / 10000000).toStringAsFixed(2)}Cr';
+    if (v >= 100000) return '₹${(v / 100000).toStringAsFixed(2)}L';
+    if (v >= 1000) return '₹${(v / 1000).toStringAsFixed(1)}K';
+    return '₹${v.toStringAsFixed(0)}';
   }
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final isDark = theme.brightness == Brightness.dark;
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     final user = AuthService.instance.currentUser;
-    final userName = user?.fullName.isNotEmpty == true ? user!.fullName : 'User';
+    final userName =
+        user?.fullName.isNotEmpty == true ? user!.fullName : 'User';
+    final userId = user?.id ?? '';
+    final goals = GoalService.instance.getGoalsForUser(userId);
+    final profile = FinancialProfileService.instance.getProfile(userId);
+    final isOnboarded =
+        FinancialProfileService.instance.isOnboardingCompleted(userId);
+    final transactions =
+        TransactionService.instance.getTransactionsForUser(userId);
 
     return SafeArea(
       child: SingleChildScrollView(
@@ -147,7 +178,7 @@ class _HomeDashboardView extends StatelessWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                // Top App Bar Header
+                // Top header
                 Row(
                   children: [
                     Container(
@@ -155,15 +186,12 @@ class _HomeDashboardView extends StatelessWidget {
                       height: 36,
                       decoration: BoxDecoration(
                         gradient: const LinearGradient(
-                          colors: AppColors.gradientAccent,
-                        ),
-                        borderRadius: BorderRadius.circular(AppDimensions.radiusSm),
+                            colors: AppColors.gradientAccent),
+                        borderRadius:
+                            BorderRadius.circular(AppDimensions.radiusSm),
                       ),
-                      child: const Icon(
-                        Icons.hub_rounded,
-                        size: 20,
-                        color: AppColors.deepNavy,
-                      ),
+                      child: const Icon(Icons.hub_rounded,
+                          size: 20, color: AppColors.deepNavy),
                     ),
                     const SizedBox(width: AppDimensions.space10),
                     Column(
@@ -193,22 +221,19 @@ class _HomeDashboardView extends StatelessWidget {
                     ),
                     const Spacer(),
                     Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 10, vertical: 4),
                       decoration: BoxDecoration(
                         color: AppColors.mintGlow,
                         borderRadius: BorderRadius.circular(12),
                         border: Border.all(
-                          color: AppColors.mint.withAlpha(90),
-                        ),
+                            color: AppColors.mint.withAlpha(90)),
                       ),
                       child: const Row(
                         mainAxisSize: MainAxisSize.min,
                         children: [
-                          Icon(
-                            Icons.check_circle_rounded,
-                            size: 12,
-                            color: AppColors.mint,
-                          ),
+                          Icon(Icons.check_circle_rounded,
+                              size: 12, color: AppColors.mint),
                           SizedBox(width: 4),
                           Text(
                             'ONLINE',
@@ -226,14 +251,19 @@ class _HomeDashboardView extends StatelessWidget {
                 ),
                 const SizedBox(height: AppDimensions.space24),
 
-                // Welcome Back Header & Profile Info
+                // Welcome card
                 Container(
                   padding: const EdgeInsets.all(AppDimensions.space20),
                   decoration: BoxDecoration(
-                    color: isDark ? AppColors.darkSurface : AppColors.lightSurface,
-                    borderRadius: BorderRadius.circular(AppDimensions.radiusLg),
+                    color: isDark
+                        ? AppColors.darkSurface
+                        : AppColors.lightSurface,
+                    borderRadius:
+                        BorderRadius.circular(AppDimensions.radiusLg),
                     border: Border.all(
-                      color: isDark ? AppColors.navyBorder : const Color(0xFFD6E4F0),
+                      color: isDark
+                          ? AppColors.navyBorder
+                          : const Color(0xFFD6E4F0),
                     ),
                     boxShadow: [
                       BoxShadow(
@@ -262,25 +292,23 @@ class _HomeDashboardView extends StatelessWidget {
                       const SizedBox(height: AppDimensions.space12),
                       const Divider(height: 1),
                       const SizedBox(height: AppDimensions.space12),
-
-                      // User Profile Meta: Account, Phone, Email
                       Wrap(
                         spacing: 16,
                         runSpacing: 10,
                         children: [
-                          _buildProfileMetaChip(
+                          _profileChip(
                             icon: Icons.verified_user_outlined,
                             label: 'Account',
                             value: 'Personal Account',
                             isDark: isDark,
                           ),
-                          _buildProfileMetaChip(
+                          _profileChip(
                             icon: Icons.phone_outlined,
                             label: 'Phone',
                             value: user?.fullPhoneNumber ?? 'Not set',
                             isDark: isDark,
                           ),
-                          _buildProfileMetaChip(
+                          _profileChip(
                             icon: Icons.email_outlined,
                             label: 'Email',
                             value: user?.email ?? 'Not set',
@@ -293,7 +321,6 @@ class _HomeDashboardView extends StatelessWidget {
                 ),
                 const SizedBox(height: AppDimensions.space24),
 
-                // Section Label
                 Text(
                   'FINANCIAL MODULES',
                   style: TextStyle(
@@ -307,79 +334,34 @@ class _HomeDashboardView extends StatelessWidget {
                 ),
                 const SizedBox(height: AppDimensions.space12),
 
-                // Card 1: FINANCIAL STATE
-                _buildModuleCard(
+                // FINANCIAL STATE CARD
+                _buildFinancialStateCard(
                   context: context,
                   isDark: isDark,
-                  headerTag: 'FINANCIAL STATE',
-                  tagColor: AppColors.electricCyan,
-                  icon: Icons.account_balance_wallet_outlined,
-                  message: 'No financial data connected yet.',
-                  actionButton: ElevatedButton.icon(
-                    onPressed: () => _showNotice(
-                      context,
-                      'Financial Profile',
-                      'Financial onboarding module will be available in the next step.',
-                    ),
-                    icon: const Icon(Icons.add_link_rounded, size: 16),
-                    label: const Text('Set Up Financial Profile'),
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: AppColors.electricCyan,
-                      foregroundColor: AppColors.deepNavy,
-                      elevation: 0,
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(AppDimensions.radiusMd),
-                      ),
-                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                      textStyle: const TextStyle(fontWeight: FontWeight.w700, fontSize: 13),
-                    ),
-                  ),
+                  isOnboarded: isOnboarded,
+                  profile: profile,
                 ),
                 const SizedBox(height: AppDimensions.space16),
 
-                // Card 2: YOUR GOALS
-                _buildModuleCard(
+                // YOUR GOALS CARD
+                _buildGoalsCard(
                   context: context,
                   isDark: isDark,
-                  headerTag: 'YOUR GOALS',
-                  tagColor: AppColors.mint,
-                  icon: Icons.flag_outlined,
-                  message: 'No financial goals created yet.',
-                  actionButton: ElevatedButton.icon(
-                    onPressed: () => _showNotice(
-                      context,
-                      'Goals',
-                      'Goal creation module will be available in the next step.',
-                    ),
-                    icon: const Icon(Icons.add_rounded, size: 16),
-                    label: const Text('Create Your First Goal'),
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: AppColors.mint,
-                      foregroundColor: AppColors.deepNavy,
-                      elevation: 0,
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(AppDimensions.radiusMd),
-                      ),
-                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                      textStyle: const TextStyle(fontWeight: FontWeight.w700, fontSize: 13),
-                    ),
-                  ),
+                  goals: goals,
+                  onNavigateToGoals: onNavigateToGoals,
                 ),
                 const SizedBox(height: AppDimensions.space16),
 
-                // Card 3: RECENT TRANSACTIONS
-                _buildModuleCard(
+                // RECENT TRANSACTIONS
+                _buildRecentTransactionsCard(
                   context: context,
                   isDark: isDark,
-                  headerTag: 'RECENT TRANSACTIONS',
-                  tagColor: const Color(0xFF64B5F6),
-                  icon: Icons.receipt_long_outlined,
-                  message: 'No transactions available yet.',
-                  submessage: 'Transactions will appear here when your financial data is connected.',
+                  transactions: transactions,
+                  onNavigateToTransactions: onNavigateToTransactions,
                 ),
                 const SizedBox(height: AppDimensions.space16),
 
-                // Card 4: GOAL CONFLICTS
+                // GOAL CONFLICTS
                 _buildModuleCard(
                   context: context,
                   isDark: isDark,
@@ -387,7 +369,8 @@ class _HomeDashboardView extends StatelessWidget {
                   tagColor: AppColors.warning,
                   icon: Icons.sync_problem_rounded,
                   message: 'No conflicts detected.',
-                  submessage: 'Goal conflict analysis will appear here once financial data is available.',
+                  submessage:
+                      'Goal conflict analysis will appear here once financial data is available.',
                 ),
                 const SizedBox(height: AppDimensions.space24),
               ],
@@ -398,7 +381,412 @@ class _HomeDashboardView extends StatelessWidget {
     );
   }
 
-  Widget _buildProfileMetaChip({
+  Widget _buildFinancialStateCard({
+    required BuildContext context,
+    required bool isDark,
+    required bool isOnboarded,
+    required FinancialProfile? profile,
+  }) {
+    if (!isOnboarded || profile == null) {
+      return _buildModuleCard(
+        context: context,
+        isDark: isDark,
+        headerTag: 'FINANCIAL STATE',
+        tagColor: AppColors.electricCyan,
+        icon: Icons.account_balance_wallet_outlined,
+        message: 'No financial data connected yet.',
+        actionButton: ElevatedButton.icon(
+          onPressed: () => Navigator.of(context).push(
+            MaterialPageRoute(
+                builder: (_) => const FinancialOnboardingPage()),
+          ),
+          icon: const Icon(Icons.add_link_rounded, size: 16),
+          label: const Text('Set Up Financial Profile'),
+          style: ElevatedButton.styleFrom(
+            backgroundColor: AppColors.electricCyan,
+            foregroundColor: AppColors.deepNavy,
+            elevation: 0,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(AppDimensions.radiusMd),
+            ),
+            padding:
+                const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+            textStyle:
+                const TextStyle(fontWeight: FontWeight.w700, fontSize: 13),
+          ),
+        ),
+      );
+    }
+
+    final surplus =
+        profile.totalMonthlyIncome - profile.totalMonthlyExpenses;
+    final isSurplus = surplus >= 0;
+
+    return GestureDetector(
+      onTap: () => Navigator.of(context).push(
+        MaterialPageRoute(builder: (_) => const FinancialStatePage()),
+      ),
+      child: Container(
+        padding: const EdgeInsets.all(AppDimensions.space20),
+        decoration: BoxDecoration(
+          color: isDark ? AppColors.darkSurface : AppColors.lightSurface,
+          borderRadius: BorderRadius.circular(AppDimensions.radiusLg),
+          border: Border.all(
+            color: isDark ? AppColors.navyBorder : const Color(0xFFD6E4F0),
+          ),
+          boxShadow: [
+            BoxShadow(
+              color: isDark
+                  ? Colors.black.withAlpha(30)
+                  : Colors.black.withAlpha(8),
+              blurRadius: 10,
+              offset: const Offset(0, 2),
+            ),
+          ],
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Container(
+                  width: 6,
+                  height: 6,
+                  decoration: const BoxDecoration(
+                      shape: BoxShape.circle, color: AppColors.electricCyan),
+                ),
+                const SizedBox(width: 8),
+                const Text(
+                  'FINANCIAL STATE',
+                  style: TextStyle(
+                    fontSize: 11,
+                    fontWeight: FontWeight.w800,
+                    letterSpacing: 1.0,
+                    color: AppColors.electricCyan,
+                  ),
+                ),
+                const Spacer(),
+                const Icon(Icons.chevron_right_rounded,
+                    size: 16, color: AppColors.electricCyan),
+              ],
+            ),
+            const SizedBox(height: AppDimensions.space16),
+            Row(
+              children: [
+                Expanded(
+                  child: _FinSummaryTile(
+                    label: 'Income',
+                    value: _fmt(profile.totalMonthlyIncome),
+                    color: AppColors.mint,
+                    isDark: isDark,
+                  ),
+                ),
+                const SizedBox(width: AppDimensions.space8),
+                Expanded(
+                  child: _FinSummaryTile(
+                    label: 'Outflow',
+                    value: _fmt(profile.totalMonthlyExpenses),
+                    color: AppColors.error,
+                    isDark: isDark,
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: AppDimensions.space8),
+            Row(
+              children: [
+                Expanded(
+                  child: _FinSummaryTile(
+                    label: isSurplus ? 'Surplus' : 'Deficit',
+                    value:
+                        '${isSurplus ? "+" : "-"}${_fmt(surplus.abs())}',
+                    color: isSurplus ? AppColors.electricCyan : AppColors.warning,
+                    isDark: isDark,
+                  ),
+                ),
+                const SizedBox(width: AppDimensions.space8),
+                Expanded(
+                  child: _FinSummaryTile(
+                    label: 'Savings',
+                    value: _fmt(profile.currentSavings),
+                    color: AppColors.electricCyan,
+                    isDark: isDark,
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: AppDimensions.space12),
+            Text(
+              'Tap to view detailed financial state',
+              style: TextStyle(
+                fontSize: 11,
+                color: isDark
+                    ? AppColors.textTertiaryDark
+                    : AppColors.textTertiaryLight,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildRecentTransactionsCard({
+    required BuildContext context,
+    required bool isDark,
+    required List<TransactionModel> transactions,
+    required VoidCallback onNavigateToTransactions,
+  }) {
+    if (transactions.isEmpty) {
+      return _buildModuleCard(
+        context: context,
+        isDark: isDark,
+        headerTag: 'RECENT TRANSACTIONS',
+        tagColor: const Color(0xFF64B5F6),
+        icon: Icons.receipt_long_outlined,
+        message: 'No transactions yet',
+        submessage:
+            'Transactions will appear here when your financial data is connected.',
+        actionButton: TextButton.icon(
+          onPressed: onNavigateToTransactions,
+          icon: const Icon(Icons.arrow_forward_rounded, size: 16),
+          label: const Text('View All Transactions'),
+          style: TextButton.styleFrom(
+            foregroundColor: AppColors.electricCyan,
+            textStyle:
+                const TextStyle(fontWeight: FontWeight.w700, fontSize: 13),
+          ),
+        ),
+      );
+    }
+
+    return Container(
+      padding: const EdgeInsets.all(AppDimensions.space20),
+      decoration: BoxDecoration(
+        color: isDark ? AppColors.darkSurface : AppColors.lightSurface,
+        borderRadius: BorderRadius.circular(AppDimensions.radiusLg),
+        border: Border.all(
+          color: isDark ? AppColors.navyBorder : const Color(0xFFD6E4F0),
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: isDark
+                ? Colors.black.withAlpha(30)
+                : Colors.black.withAlpha(8),
+            blurRadius: 10,
+            offset: const Offset(0, 2),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                width: 6,
+                height: 6,
+                decoration: const BoxDecoration(
+                    shape: BoxShape.circle, color: Color(0xFF64B5F6)),
+              ),
+              const SizedBox(width: 8),
+              const Text(
+                'RECENT TRANSACTIONS',
+                style: TextStyle(
+                  fontSize: 11,
+                  fontWeight: FontWeight.w800,
+                  letterSpacing: 1.0,
+                  color: Color(0xFF64B5F6),
+                ),
+              ),
+              const Spacer(),
+              GestureDetector(
+                onTap: onNavigateToTransactions,
+                child: const Text(
+                  'View All',
+                  style: TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w700,
+                    color: AppColors.electricCyan,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: AppDimensions.space16),
+          ...transactions.take(3).map(
+                (tx) => Padding(
+                  padding: const EdgeInsets.only(bottom: AppDimensions.space8),
+                  child: _TransactionMiniRow(
+                    transaction: tx,
+                    isDark: isDark,
+                    onTap: () => Navigator.of(context).push(
+                      MaterialPageRoute(
+                        builder: (_) => TransactionDetailPage(transaction: tx),
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+          if (transactions.length > 3)
+            Padding(
+              padding: const EdgeInsets.only(top: 4),
+              child: GestureDetector(
+                onTap: onNavigateToTransactions,
+                child: Text(
+                  '+ ${transactions.length - 3} more transaction${transactions.length - 3 == 1 ? "" : "s"}',
+                  style: const TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600,
+                    color: AppColors.electricCyan,
+                  ),
+                ),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildGoalsCard({
+    required BuildContext context,
+    required bool isDark,
+    required List<GoalModel> goals,
+    required VoidCallback onNavigateToGoals,
+  }) {
+    if (goals.isEmpty) {
+      return _buildModuleCard(
+        context: context,
+        isDark: isDark,
+        headerTag: 'YOUR GOALS',
+        tagColor: AppColors.mint,
+        icon: Icons.flag_outlined,
+        message: 'No financial goals created yet.',
+        submessage:
+            'Create goals so GoalSync can analyze future financial conflicts.',
+        actionButton: ElevatedButton.icon(
+          onPressed: onNavigateToGoals,
+          icon: const Icon(Icons.add_rounded, size: 16),
+          label: const Text('Create Your First Goal'),
+          style: ElevatedButton.styleFrom(
+            backgroundColor: AppColors.mint,
+            foregroundColor: AppColors.deepNavy,
+            elevation: 0,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(AppDimensions.radiusMd),
+            ),
+            padding:
+                const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+            textStyle:
+                const TextStyle(fontWeight: FontWeight.w700, fontSize: 13),
+          ),
+        ),
+      );
+    }
+
+    return Container(
+      padding: const EdgeInsets.all(AppDimensions.space20),
+      decoration: BoxDecoration(
+        color: isDark ? AppColors.darkSurface : AppColors.lightSurface,
+        borderRadius: BorderRadius.circular(AppDimensions.radiusLg),
+        border: Border.all(
+          color: isDark ? AppColors.navyBorder : const Color(0xFFD6E4F0),
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: isDark
+                ? Colors.black.withAlpha(30)
+                : Colors.black.withAlpha(8),
+            blurRadius: 10,
+            offset: const Offset(0, 2),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                width: 6,
+                height: 6,
+                decoration: const BoxDecoration(
+                    shape: BoxShape.circle, color: AppColors.mint),
+              ),
+              const SizedBox(width: 8),
+              const Text(
+                'YOUR GOALS',
+                style: TextStyle(
+                  fontSize: 11,
+                  fontWeight: FontWeight.w800,
+                  letterSpacing: 1.0,
+                  color: AppColors.mint,
+                ),
+              ),
+              const Spacer(),
+              GestureDetector(
+                onTap: onNavigateToGoals,
+                child: const Text(
+                  'See All',
+                  style: TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w700,
+                    color: AppColors.electricCyan,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: AppDimensions.space16),
+          Row(
+            children: [
+              _GoalStatChip(
+                  label: 'Total',
+                  value: '${goals.length}',
+                  color: AppColors.electricCyan,
+                  isDark: isDark),
+              const SizedBox(width: 8),
+              _GoalStatChip(
+                  label: 'Completed',
+                  value: '${goals.where((g) => g.isCompleted).length}',
+                  color: AppColors.mint,
+                  isDark: isDark),
+              const SizedBox(width: 8),
+              _GoalStatChip(
+                  label: 'Overdue',
+                  value:
+                      '${goals.where((g) => g.daysRemaining < 0 && !g.isCompleted).length}',
+                  color: AppColors.error,
+                  isDark: isDark),
+            ],
+          ),
+          const SizedBox(height: AppDimensions.space12),
+          ...goals.take(2).map((g) => Padding(
+                padding:
+                    const EdgeInsets.only(bottom: AppDimensions.space8),
+                child: _GoalMiniRow(goal: g, isDark: isDark),
+              )),
+          if (goals.length > 2)
+            Padding(
+              padding: const EdgeInsets.only(top: 4),
+              child: GestureDetector(
+                onTap: onNavigateToGoals,
+                child: Text(
+                  '+ \${goals.length - 2} more goal\${goals.length - 2 == 1 ? "" : "s"}',
+                  style: const TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600,
+                    color: AppColors.electricCyan,
+                  ),
+                ),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+
+  Widget _profileChip({
     required IconData icon,
     required String label,
     required String value,
@@ -415,34 +803,28 @@ class _HomeDashboardView extends StatelessWidget {
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(
-            icon,
-            size: 14,
-            color: isDark
-                ? AppColors.textSecondaryDark
-                : AppColors.textSecondaryLight,
-          ),
-          const SizedBox(width: 6),
-          Text(
-            '$label: ',
-            style: TextStyle(
-              fontSize: 12,
-              fontWeight: FontWeight.w500,
+          Icon(icon,
+              size: 14,
               color: isDark
                   ? AppColors.textSecondaryDark
-                  : AppColors.textSecondaryLight,
-            ),
-          ),
-          Text(
-            value,
-            style: TextStyle(
-              fontSize: 12,
-              fontWeight: FontWeight.w700,
-              color: isDark
-                  ? AppColors.textPrimaryDark
-                  : AppColors.textPrimaryLight,
-            ),
-          ),
+                  : AppColors.textSecondaryLight),
+          const SizedBox(width: 6),
+          Text('$label: ',
+              style: TextStyle(
+                fontSize: 12,
+                fontWeight: FontWeight.w500,
+                color: isDark
+                    ? AppColors.textSecondaryDark
+                    : AppColors.textSecondaryLight,
+              )),
+          Text(value,
+              style: TextStyle(
+                fontSize: 12,
+                fontWeight: FontWeight.w700,
+                color: isDark
+                    ? AppColors.textPrimaryDark
+                    : AppColors.textPrimaryLight,
+              )),
         ],
       ),
     );
@@ -479,32 +861,25 @@ class _HomeDashboardView extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // Header Tag
           Row(
             children: [
               Container(
                 width: 6,
                 height: 6,
                 decoration: BoxDecoration(
-                  shape: BoxShape.circle,
-                  color: tagColor,
-                ),
+                    shape: BoxShape.circle, color: tagColor),
               ),
               const SizedBox(width: 8),
-              Text(
-                headerTag,
-                style: TextStyle(
-                  fontSize: 11,
-                  fontWeight: FontWeight.w800,
-                  letterSpacing: 1.0,
-                  color: tagColor,
-                ),
-              ),
+              Text(headerTag,
+                  style: TextStyle(
+                    fontSize: 11,
+                    fontWeight: FontWeight.w800,
+                    letterSpacing: 1.0,
+                    color: tagColor,
+                  )),
             ],
           ),
           const SizedBox(height: AppDimensions.space16),
-
-          // Content Box
           Row(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
@@ -514,43 +889,38 @@ class _HomeDashboardView extends StatelessWidget {
                   color: isDark
                       ? AppColors.navyMid
                       : AppColors.lightSurfaceVariant,
-                  borderRadius: BorderRadius.circular(AppDimensions.radiusMd),
+                  borderRadius:
+                      BorderRadius.circular(AppDimensions.radiusMd),
                 ),
-                child: Icon(
-                  icon,
-                  size: 24,
-                  color: isDark
-                      ? AppColors.textSecondaryDark
-                      : AppColors.textSecondaryLight,
-                ),
+                child: Icon(icon,
+                    size: 24,
+                    color: isDark
+                        ? AppColors.textSecondaryDark
+                        : AppColors.textSecondaryLight),
               ),
               const SizedBox(width: AppDimensions.space16),
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(
-                      message,
-                      style: TextStyle(
-                        fontSize: 15,
-                        fontWeight: FontWeight.w700,
-                        color: isDark
-                            ? AppColors.textPrimaryDark
-                            : AppColors.textPrimaryLight,
-                      ),
-                    ),
+                    Text(message,
+                        style: TextStyle(
+                          fontSize: 15,
+                          fontWeight: FontWeight.w700,
+                          color: isDark
+                              ? AppColors.textPrimaryDark
+                              : AppColors.textPrimaryLight,
+                        )),
                     if (submessage != null) ...[
                       const SizedBox(height: 4),
-                      Text(
-                        submessage,
-                        style: TextStyle(
-                          fontSize: 13,
-                          color: isDark
-                              ? AppColors.textSecondaryDark
-                              : AppColors.textSecondaryLight,
-                          height: 1.4,
-                        ),
-                      ),
+                      Text(submessage,
+                          style: TextStyle(
+                            fontSize: 13,
+                            color: isDark
+                                ? AppColors.textSecondaryDark
+                                : AppColors.textSecondaryLight,
+                            height: 1.4,
+                          )),
                     ],
                     if (actionButton != null) ...[
                       const SizedBox(height: AppDimensions.space12),
@@ -567,7 +937,156 @@ class _HomeDashboardView extends StatelessWidget {
   }
 }
 
-/// Simple placeholder screen for future modules (Goals, Activity, AI Copilot).
+class _FinSummaryTile extends StatelessWidget {
+  final String label;
+  final String value;
+  final Color color;
+  final bool isDark;
+
+  const _FinSummaryTile({
+    required this.label,
+    required this.value,
+    required this.color,
+    required this.isDark,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+      decoration: BoxDecoration(
+        color: color.withAlpha(20),
+        borderRadius: BorderRadius.circular(AppDimensions.radiusMd),
+        border: Border.all(color: color.withAlpha(50)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            label,
+            style: TextStyle(
+              fontSize: 10,
+              letterSpacing: 0.3,
+              color: isDark
+                  ? AppColors.textTertiaryDark
+                  : AppColors.textTertiaryLight,
+            ),
+          ),
+          const SizedBox(height: 2),
+          Text(
+            value,
+            style: TextStyle(
+              fontSize: 14,
+              fontWeight: FontWeight.w800,
+              color: color,
+            ),
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _GoalStatChip extends StatelessWidget {
+  final String label;
+  final String value;
+  final Color color;
+  final bool isDark;
+
+  const _GoalStatChip({
+    required this.label,
+    required this.value,
+    required this.color,
+    required this.isDark,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+      decoration: BoxDecoration(
+        color: color.withAlpha(20),
+        borderRadius: BorderRadius.circular(AppDimensions.radiusMd),
+        border: Border.all(color: color.withAlpha(60)),
+      ),
+      child: Column(
+        children: [
+          Text(value,
+              style: TextStyle(
+                  fontSize: 18, fontWeight: FontWeight.w800, color: color)),
+          Text(label,
+              style: TextStyle(
+                fontSize: 10,
+                color: isDark
+                    ? AppColors.textSecondaryDark
+                    : AppColors.textSecondaryLight,
+              )),
+        ],
+      ),
+    );
+  }
+}
+
+class _GoalMiniRow extends StatelessWidget {
+  final GoalModel goal;
+  final bool isDark;
+
+  const _GoalMiniRow({required this.goal, required this.isDark});
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: [
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                goal.name,
+                style: TextStyle(
+                  fontSize: 13,
+                  fontWeight: FontWeight.w700,
+                  color: isDark
+                      ? AppColors.textPrimaryDark
+                      : AppColors.textPrimaryLight,
+                ),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+              ),
+              const SizedBox(height: 4),
+              ClipRRect(
+                borderRadius: BorderRadius.circular(4),
+                child: LinearProgressIndicator(
+                  value: goal.progressFraction,
+                  backgroundColor: isDark
+                      ? AppColors.navyMid
+                      : AppColors.lightSurfaceVariant,
+                  valueColor: AlwaysStoppedAnimation<Color>(
+                    goal.isCompleted ? AppColors.mint : AppColors.electricCyan,
+                  ),
+                  minHeight: 4,
+                ),
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(width: 12),
+        Text(
+          goal.progressPercentage,
+          style: TextStyle(
+            fontSize: 12,
+            fontWeight: FontWeight.w800,
+            color: goal.isCompleted ? AppColors.mint : AppColors.electricCyan,
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+/// Simple placeholder screen for future modules.
 class _PlaceholderModuleView extends StatelessWidget {
   final String moduleName;
   final String subtitle;
@@ -584,12 +1103,12 @@ class _PlaceholderModuleView extends StatelessWidget {
     final isDark = Theme.of(context).brightness == Brightness.dark;
 
     return Scaffold(
-      backgroundColor: isDark ? AppColors.darkBackground : AppColors.lightBackground,
+      backgroundColor:
+          isDark ? AppColors.darkBackground : AppColors.lightBackground,
       appBar: AppBar(
-        title: Text(
-          moduleName,
-          style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w800),
-        ),
+        title: Text(moduleName,
+            style:
+                const TextStyle(fontSize: 20, fontWeight: FontWeight.w800)),
         backgroundColor: Colors.transparent,
         elevation: 0,
         centerTitle: false,
@@ -609,14 +1128,10 @@ class _PlaceholderModuleView extends StatelessWidget {
                       : AppColors.lightSurfaceVariant,
                   shape: BoxShape.circle,
                   border: Border.all(
-                    color: AppColors.electricCyan.withAlpha(80),
-                  ),
+                      color: AppColors.electricCyan.withAlpha(80)),
                 ),
-                child: Icon(
-                  icon,
-                  size: 32,
-                  color: AppColors.electricCyan,
-                ),
+                child:
+                    Icon(icon, size: 32, color: AppColors.electricCyan),
               ),
               const SizedBox(height: AppDimensions.space20),
               Text(
@@ -643,6 +1158,114 @@ class _PlaceholderModuleView extends StatelessWidget {
               ),
             ],
           ),
+        ),
+      ),
+    );
+  }
+}
+
+class _TransactionMiniRow extends StatelessWidget {
+  final TransactionModel transaction;
+  final bool isDark;
+  final VoidCallback onTap;
+
+  const _TransactionMiniRow({
+    required this.transaction,
+    required this.isDark,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final isDebit = transaction.isDebit;
+    final badgeColor = isDebit ? AppColors.error : AppColors.mint;
+    final badgeBg = isDebit
+        ? AppColors.error.withAlpha(20)
+        : AppColors.mint.withAlpha(20);
+
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(AppDimensions.radiusSm),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: 4),
+        child: Row(
+          children: [
+            Container(
+              width: 32,
+              height: 32,
+              decoration: BoxDecoration(
+                color: isDark
+                    ? AppColors.darkSurfaceVariant
+                    : AppColors.lightSurfaceVariant,
+                borderRadius: BorderRadius.circular(6),
+              ),
+              child: Icon(
+                isDebit ? Icons.arrow_upward_rounded : Icons.arrow_downward_rounded,
+                size: 16,
+                color: badgeColor,
+              ),
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    transaction.merchantName,
+                    style: TextStyle(
+                      fontSize: 13,
+                      fontWeight: FontWeight.w700,
+                      color: isDark
+                          ? AppColors.textPrimaryDark
+                          : AppColors.textPrimaryLight,
+                    ),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                  Text(
+                    '${transaction.category} • ${transaction.paymentMethod.displayName}',
+                    style: TextStyle(
+                      fontSize: 10,
+                      color: isDark
+                          ? AppColors.textTertiaryDark
+                          : AppColors.textTertiaryLight,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(width: 8),
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.end,
+              children: [
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                  decoration: BoxDecoration(
+                    color: badgeBg,
+                    borderRadius: BorderRadius.circular(4),
+                  ),
+                  child: Text(
+                    transaction.signedFormattedAmount,
+                    style: TextStyle(
+                      fontSize: 11,
+                      fontWeight: FontWeight.w800,
+                      color: badgeColor,
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  transaction.formattedDate,
+                  style: TextStyle(
+                    fontSize: 9,
+                    color: isDark
+                        ? AppColors.textTertiaryDark
+                        : AppColors.textTertiaryLight,
+                  ),
+                ),
+              ],
+            ),
+          ],
         ),
       ),
     );

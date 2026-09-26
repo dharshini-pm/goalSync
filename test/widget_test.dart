@@ -3,6 +3,8 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:goalsync/features/auth/presentation/pages/sign_up_page.dart';
 import 'package:goalsync/features/auth/services/auth_service.dart';
 import 'package:goalsync/features/dashboard/presentation/pages/dashboard_page.dart';
+import 'package:goalsync/features/onboarding/presentation/pages/financial_onboarding_page.dart';
+import 'package:goalsync/features/onboarding/services/financial_profile_service.dart';
 import 'package:goalsync/main.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -10,10 +12,13 @@ void main() {
   setUp(() async {
     SharedPreferences.setMockInitialValues({});
     AuthService.resetForTesting();
+    FinancialProfileService.resetForTesting();
     await AuthService.instance.init();
+    await FinancialProfileService.instance.init();
   });
 
-  testWidgets('GoalSync initial launch displays Welcome Page with branding & CTAs',
+  testWidgets(
+      'GoalSync initial launch displays Welcome Page with branding & CTAs',
       (WidgetTester tester) async {
     await tester.pumpWidget(const GoalSyncApp());
     await tester.pump();
@@ -70,7 +75,8 @@ void main() {
     expect(find.text('Login'), findsOneWidget);
   });
 
-  testWidgets('Full flow: Sign Up -> Dashboard with real name & 4 empty cards',
+  testWidgets(
+      'Full flow: Sign Up -> Financial Onboarding (Steps 1-4) -> Dashboard',
       (WidgetTester tester) async {
     await tester.pumpWidget(
       const MaterialApp(
@@ -117,6 +123,64 @@ void main() {
     await tester.tap(createAccountBtn);
     await tester.pumpAndSettle();
 
+    // Verify redirected to Financial Onboarding Page
+    expect(find.byType(FinancialOnboardingPage), findsOneWidget);
+    expect(find.text('Tell us about yourself'), findsOneWidget);
+
+    // ── STEP 1: About You ──
+    await tester.enterText(
+      find.widgetWithText(TextFormField, 'e.g. 28'),
+      '29',
+    );
+    // Continue to Step 2
+    await tester.tap(find.text('Continue'));
+    await tester.pumpAndSettle();
+
+    // ── STEP 2: Income ──
+    expect(find.text('Your monthly income'), findsOneWidget);
+    await tester.enterText(
+      find.widgetWithText(TextFormField, 'e.g. 85000'),
+      '80000',
+    );
+    // Continue to Step 3
+    await tester.tap(find.text('Continue'));
+    await tester.pumpAndSettle();
+
+    // ── STEP 3: Current Financial Position ──
+    expect(find.text('Current financial position'), findsOneWidget);
+    await tester.enterText(
+      find.widgetWithText(TextFormField, 'e.g. 250000'),
+      '300000',
+    );
+    await tester.enterText(
+      find.widgetWithText(TextFormField, 'e.g. 35000'),
+      '35000',
+    );
+    await tester.enterText(
+      find.widgetWithText(TextFormField, 'e.g. 20000'),
+      '20000',
+    );
+    await tester.enterText(
+      find.widgetWithText(TextFormField, 'e.g. 15000 (or 0)'),
+      '0',
+    );
+    await tester.enterText(
+      find.widgetWithText(TextFormField, 'e.g. 1 (or 0)'),
+      '0',
+    );
+    // Continue to Step 4: Review
+    await tester.tap(find.text('Continue'));
+    await tester.pumpAndSettle();
+
+    // ── STEP 4: Review ──
+    expect(find.text('Review your profile'), findsOneWidget);
+    expect(find.text('29 years'), findsOneWidget);
+    expect(find.text('Finish Setup'), findsOneWidget);
+
+    // Tap Finish Setup
+    await tester.tap(find.text('Finish Setup'));
+    await tester.pumpAndSettle();
+
     // Verify on Dashboard with real user name
     expect(find.text('Welcome back, Aditya Verma'), findsOneWidget);
     expect(find.text('aditya@example.com'), findsOneWidget);
@@ -135,9 +199,6 @@ void main() {
 
     expect(find.text('GOAL CONFLICTS'), findsOneWidget);
     expect(find.text('No conflicts detected.'), findsOneWidget);
-
-    // Verify NO fake financial numbers or transactions exist
-    expect(find.textContaining('₹'), findsNothing);
   });
 
   testWidgets('Bottom navigation tabs switch and Profile displays Logout',
@@ -161,12 +222,12 @@ void main() {
     // Switch to Goals tab
     await tester.tap(find.text('Goals'));
     await tester.pumpAndSettle();
-    expect(find.text('Goals module coming next'), findsOneWidget);
+    expect(find.text('Your Goals'), findsOneWidget);
 
     // Switch to Activity tab
     await tester.tap(find.text('Activity'));
     await tester.pumpAndSettle();
-    expect(find.text('Activity module coming next'), findsOneWidget);
+    expect(find.text('Transactions'), findsOneWidget);
 
     // Switch to AI tab
     await tester.tap(find.text('AI'));

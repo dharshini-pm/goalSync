@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../../../../core/constants/app_colors.dart';
 import '../../../../core/constants/app_dimensions.dart';
-import '../../../dashboard/presentation/pages/dashboard_page.dart';
 import '../../services/auth_service.dart';
 import 'login_page.dart';
 
@@ -191,9 +190,9 @@ class _SignUpPageState extends State<SignUpPage> {
       if (!mounted) return;
 
       if (result.isSuccess) {
-        // Navigate to Main Dashboard and clear stack
+        // After registration, direct the user to Login so they can sign in.
         Navigator.of(context).pushAndRemoveUntil(
-          MaterialPageRoute(builder: (_) => const DashboardPage()),
+          MaterialPageRoute(builder: (_) => const LoginPage()),
           (route) => false,
         );
       } else {

@@ -1,11 +1,11 @@
 import 'package:flutter/material.dart';
-import 'package:google_fonts/google_fonts.dart';
 import '../constants/app_colors.dart';
 
 /// GoalSync typography system.
 ///
-/// Built on the [Inter](https://fonts.google.com/specimen/Inter) typeface
+/// Built on the [Roboto](https://fonts.google.com/specimen/Roboto) typeface
 /// for maximum readability and a premium SaaS feel.
+/// Fonts are bundled locally — no network required.
 ///
 /// Scale follows Material 3 naming conventions with GoalSync-specific
 /// weight and letter-spacing tuning.
@@ -14,25 +14,22 @@ abstract final class AppTypography {
   // Light Theme Text Theme
   // ─────────────────────────────────────────────────────────────
 
-  static TextTheme get lightTextTheme => GoogleFonts.interTextTheme(
-        _buildTextTheme(
-          primary: AppColors.textPrimaryLight,
-          secondary: AppColors.textSecondaryLight,
-          tertiary: AppColors.textTertiaryLight,
-        ),
+  static TextTheme get lightTextTheme => _buildTextTheme(
+        primary: AppColors.textPrimaryLight,
+        secondary: AppColors.textSecondaryLight,
+        tertiary: AppColors.textTertiaryLight,
       );
 
   // ─────────────────────────────────────────────────────────────
   // Dark Theme Text Theme
   // ─────────────────────────────────────────────────────────────
 
-  static TextTheme get darkTextTheme => GoogleFonts.interTextTheme(
-        _buildTextTheme(
-          primary: AppColors.textPrimaryDark,
-          secondary: AppColors.textSecondaryDark,
-          tertiary: AppColors.textTertiaryDark,
-        ),
+  static TextTheme get darkTextTheme => _buildTextTheme(
+        primary: AppColors.textPrimaryDark,
+        secondary: AppColors.textSecondaryDark,
+        tertiary: AppColors.textTertiaryDark,
       );
+
 
   // ─────────────────────────────────────────────────────────────
   // Internal Builder

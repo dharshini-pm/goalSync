@@ -152,12 +152,14 @@ class GoalModel {
   }
 
   factory GoalModel.fromMap(Map<String, dynamic> map) {
+    final catStr = (map['category'] as String? ?? '').toLowerCase();
+    final prioStr = (map['priority'] as String? ?? '').toLowerCase();
     return GoalModel(
-      id: map['id'] as String? ?? '',
-      userId: map['userId'] as String? ?? '',
+      id: (map['id'] ?? map['_id'] ?? '').toString(),
+      userId: (map['userId'] ?? '').toString(),
       name: map['name'] as String? ?? '',
       category: GoalCategory.values.firstWhere(
-        (e) => e.name == (map['category'] as String? ?? ''),
+        (e) => e.name.toLowerCase() == catStr || e.displayName.toLowerCase() == catStr,
         orElse: () => GoalCategory.other,
       ),
       targetAmount: (map['targetAmount'] as num?)?.toDouble() ?? 0.0,
@@ -166,7 +168,7 @@ class GoalModel {
           ? DateTime.tryParse(map['targetDate'] as String) ?? DateTime.now()
           : DateTime.now(),
       priority: GoalPriority.values.firstWhere(
-        (e) => e.name == (map['priority'] as String? ?? ''),
+        (e) => e.name.toLowerCase() == prioStr || e.displayName.toLowerCase() == prioStr,
         orElse: () => GoalPriority.flexible,
       ),
       createdAt: map['createdAt'] != null

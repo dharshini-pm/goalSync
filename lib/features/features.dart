@@ -25,3 +25,7 @@ export 'transactions/presentation/pages/transaction_detail_page.dart';
 export 'transactions/presentation/pages/transactions_page.dart';
 export 'transactions/presentation/widgets/transaction_card.dart';
 export 'transactions/services/transaction_service.dart';
+export 'auth/services/auth_api_service.dart';
+export 'profile/services/profile_api_service.dart';
+export 'goals/services/goal_api_service.dart';
+export 'transactions/services/transaction_api_service.dart';

@@ -9,6 +9,7 @@ import '../models/financial_conflict_model.dart';
 import '../models/financial_state_snapshot.dart';
 import '../models/goal_feasibility_model.dart';
 import '../models/goal_intelligence_snapshot.dart';
+import 'transaction_pattern_service.dart';
 
 /// Service that orchestrates deterministic financial intelligence calculations
 /// across user profile, goals, and transaction history.
@@ -22,6 +23,7 @@ class GoalIntelligenceService extends ChangeNotifier {
   final FinancialProfileService _profileService;
   final GoalService _goalService;
   final TransactionService _transactionService;
+  final TransactionPatternService _transactionPatternService;
 
   final Map<String, GoalIntelligenceSnapshot> _cachedSnapshots = {};
 
@@ -29,14 +31,18 @@ class GoalIntelligenceService extends ChangeNotifier {
     FinancialProfileService? profileService,
     GoalService? goalService,
     TransactionService? transactionService,
+    TransactionPatternService? transactionPatternService,
   })  : _profileService = profileService ?? FinancialProfileService.instance,
         _goalService = goalService ?? GoalService.instance,
-        _transactionService = transactionService ?? TransactionService.instance;
+        _transactionService = transactionService ?? TransactionService.instance,
+        _transactionPatternService =
+            transactionPatternService ?? const TransactionPatternService();
 
   GoalIntelligenceService._()
       : _profileService = FinancialProfileService.instance,
         _goalService = GoalService.instance,
-        _transactionService = TransactionService.instance;
+        _transactionService = TransactionService.instance,
+        _transactionPatternService = const TransactionPatternService();
 
   @visibleForTesting
   static void resetForTesting() {
@@ -146,6 +152,12 @@ class GoalIntelligenceService extends ChangeNotifier {
       conflicts: conflictAnalysis.conflicts,
     );
 
+    // 7. Deterministically analyze transaction patterns
+    final transactionPatterns = _transactionPatternService.analyze(
+      transactions,
+      asOfDate: now,
+    );
+
     final snapshot = GoalIntelligenceSnapshot(
       userId: userId,
       generatedAt: now,
@@ -161,6 +173,7 @@ class GoalIntelligenceService extends ChangeNotifier {
       totalRequiredMonthlyGoalContribution: totalRequiredMonthly,
       availableMonthlyAmount: financialState.availableMonthlyAmount,
       overallGoalCapacityStatus: overallStatus,
+      transactionPatterns: transactionPatterns,
     );
 
     _cachedSnapshots[userId] = snapshot;

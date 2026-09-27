@@ -24,6 +24,10 @@ class _TransactionsPageState extends State<TransactionsPage> {
     super.initState();
     TransactionService.instance.init();
     TransactionService.instance.addListener(_onServiceUpdate);
+    final userId = AuthService.instance.currentUser?.id;
+    if (userId != null && userId.isNotEmpty) {
+      TransactionService.instance.fetchTransactionsFromBackend(userId);
+    }
   }
 
   @override

@@ -2,11 +2,12 @@ import 'dart:convert';
 import 'financial_conflict_model.dart';
 import 'financial_state_snapshot.dart';
 import 'goal_feasibility_model.dart';
+import 'transaction_pattern_snapshot.dart';
 
 /// Represents a unified, immutable deterministic intelligence snapshot for a user.
 ///
 /// Integrates calculated financial state, goal feasibility evaluations,
-/// detected conflicts, and an overall goal capacity classification.
+/// detected conflicts, transaction pattern intelligence, and overall capacity.
 /// Designed for immediate consumption by UI components or downstream AI agents.
 class GoalIntelligenceSnapshot {
   final String userId;
@@ -28,6 +29,9 @@ class GoalIntelligenceSnapshot {
   final double availableMonthlyAmount;
   final String overallGoalCapacityStatus; // 'healthy', 'tight', 'conflicted', 'no_goals'
 
+  // Transaction Pattern Intelligence
+  final TransactionPatternSnapshot? transactionPatterns;
+
   const GoalIntelligenceSnapshot({
     required this.userId,
     required this.generatedAt,
@@ -43,7 +47,27 @@ class GoalIntelligenceSnapshot {
     required this.totalRequiredMonthlyGoalContribution,
     required this.availableMonthlyAmount,
     required this.overallGoalCapacityStatus,
+    this.transactionPatterns,
   });
+
+  // Derived transaction pattern signals for downstream agents
+  int get totalTransactionCount =>
+      transactionPatterns?.totalTransactionCount ?? 0;
+  double get totalTransactionExpenses =>
+      transactionPatterns?.totalExpenses ?? 0.0;
+  double get totalTransactionIncome =>
+      transactionPatterns?.totalIncome ?? 0.0;
+  double get averageExpense =>
+      transactionPatterns?.averageExpense ?? 0.0;
+  double get largestExpense =>
+      transactionPatterns?.largestExpense ?? 0.0;
+  Map<String, double> get categoryTotals =>
+      transactionPatterns?.categoryTotals ?? const {};
+  Map<String, double> get merchantTotals =>
+      transactionPatterns?.merchantTotals ?? const {};
+  List<RecurringTransactionCandidate> get recurringCandidates =>
+      transactionPatterns?.recurringCandidates ?? const [];
+
 
   Map<String, dynamic> toMap() {
     return {
@@ -63,6 +87,7 @@ class GoalIntelligenceSnapshot {
           totalRequiredMonthlyGoalContribution,
       'availableMonthlyAmount': availableMonthlyAmount,
       'overallGoalCapacityStatus': overallGoalCapacityStatus,
+      'transactionPatterns': transactionPatterns?.toMap(),
     };
   }
 
@@ -77,6 +102,12 @@ class GoalIntelligenceSnapshot {
             ?.map((e) => FinancialConflict.fromMap(e as Map<String, dynamic>))
             .toList() ??
         <FinancialConflict>[];
+
+    final patternsMap =
+        map['transactionPatterns'] as Map<String, dynamic>?;
+    final transactionPatterns = patternsMap != null
+        ? TransactionPatternSnapshot.fromMap(patternsMap)
+        : null;
 
     return GoalIntelligenceSnapshot(
       userId: map['userId'] as String? ?? '',
@@ -100,6 +131,7 @@ class GoalIntelligenceSnapshot {
           (map['availableMonthlyAmount'] as num?)?.toDouble() ?? 0.0,
       overallGoalCapacityStatus:
           map['overallGoalCapacityStatus'] as String? ?? 'no_goals',
+      transactionPatterns: transactionPatterns,
     );
   }
 

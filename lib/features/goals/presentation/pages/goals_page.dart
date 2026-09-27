@@ -21,6 +21,10 @@ class _GoalsPageState extends State<GoalsPage> {
   void initState() {
     super.initState();
     GoalService.instance.addListener(_onGoalsChanged);
+    final userId = AuthService.instance.currentUser?.id;
+    if (userId != null && userId.isNotEmpty) {
+      GoalService.instance.fetchGoalsFromBackend(userId);
+    }
   }
 
   @override

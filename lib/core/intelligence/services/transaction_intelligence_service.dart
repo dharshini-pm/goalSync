@@ -2,34 +2,52 @@ import 'package:flutter/foundation.dart';
 import '../../../features/transactions/models/transaction_model.dart';
 import '../../../features/transactions/services/transaction_service.dart';
 import '../engines/transaction_intelligence_engine.dart';
-import '../models/transaction_intelligence_model.dart';
+import '../models/transaction_intelligence.dart';
 
-/// Service orchestrating deterministic transaction intelligence for users.
+/// Pure analysis service orchestrating deterministic transaction intelligence.
 ///
-/// Features:
-/// - Transforms raw [TransactionModel] objects into enriched [TransactionIntelligence] objects.
-/// - Produces aggregated [TransactionIntelligenceSummary] metrics.
-/// - Operates purely in-memory; does NOT mutate underlying stored transactions.
+/// Accepts an existing [TransactionModel] and produces derived [TransactionIntelligence].
+///
+/// Important:
+/// - Does NOT mutate or save the original [TransactionModel].
+/// - Functions purely as an in-memory analysis layer.
+/// - Remains completely independent of Flutter UI and backend APIs.
 class TransactionIntelligenceService extends ChangeNotifier {
   static TransactionIntelligenceService? _instance;
   static TransactionIntelligenceService get instance =>
       _instance ??= TransactionIntelligenceService._();
 
-  final TransactionService _transactionService;
+  final TransactionService? _transactionService;
   final Map<String, List<TransactionIntelligence>> _cachedTransactions = {};
   final Map<String, TransactionIntelligenceSummary> _cachedSummaries = {};
 
   TransactionIntelligenceService({
     TransactionService? transactionService,
-  }) : _transactionService =
-            transactionService ?? TransactionService.instance;
+  }) : _transactionService = transactionService;
 
-  TransactionIntelligenceService._()
-      : _transactionService = TransactionService.instance;
+  TransactionIntelligenceService._() : _transactionService = null;
 
   @visibleForTesting
   static void resetForTesting() {
     _instance = null;
+  }
+
+  /// Primary analysis method: accepts an existing [TransactionModel] and returns derived [TransactionIntelligence].
+  ///
+  /// Does NOT modify or save the original transaction.
+  TransactionIntelligence analyze(TransactionModel transaction) {
+    return TransactionIntelligenceEngine.analyzeTransaction(transaction);
+  }
+
+  /// Convenience alias for [analyze].
+  TransactionIntelligence analyzeTransaction(TransactionModel transaction) {
+    return analyze(transaction);
+  }
+
+  /// Direct in-memory analysis helper for arbitrary lists of transactions.
+  /// Does NOT modify any of the input transactions.
+  List<TransactionIntelligence> analyzeAll(List<TransactionModel> transactions) {
+    return TransactionIntelligenceEngine.analyzeAll(transactions);
   }
 
   /// Get cached intelligence transactions for a user, if available.
@@ -44,14 +62,13 @@ class TransactionIntelligenceService extends ChangeNotifier {
   Future<List<TransactionIntelligence>> analyzeTransactions(
     String userId,
   ) async {
-    if (!_transactionService.isInitialized) {
-      await _transactionService.init();
+    final service = _transactionService ?? TransactionService.instance;
+    if (!service.isInitialized) {
+      await service.init();
     }
 
-    final rawTransactions =
-        _transactionService.getTransactionsForUser(userId);
-    final enriched =
-        TransactionIntelligenceEngine.analyzeAll(rawTransactions);
+    final rawTransactions = service.getTransactionsForUser(userId);
+    final enriched = TransactionIntelligenceEngine.analyzeAll(rawTransactions);
 
     _cachedTransactions[userId] = enriched;
     return enriched;
@@ -83,18 +100,13 @@ class TransactionIntelligenceService extends ChangeNotifier {
     return summary;
   }
 
-  /// Direct in-memory analysis helper for arbitrary lists of transactions.
-  List<TransactionIntelligence> analyze(List<TransactionModel> transactions) {
-    return TransactionIntelligenceEngine.analyzeAll(transactions);
-  }
-
   /// Direct in-memory summary helper for arbitrary lists of transactions.
   TransactionIntelligenceSummary summarize(
     List<TransactionModel> transactions, {
     String userId = '',
     DateTime? asOfDate,
   }) {
-    final enriched = analyze(transactions);
+    final enriched = analyzeAll(transactions);
     return TransactionIntelligenceEngine.summarize(
       enriched,
       userId: userId,

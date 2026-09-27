@@ -36,6 +36,13 @@ class _DashboardPageState extends State<DashboardPage> {
     GoalService.instance.addListener(_refresh);
     FinancialProfileService.instance.addListener(_refresh);
     TransactionService.instance.addListener(_refresh);
+
+    final userId = AuthService.instance.currentUser?.id;
+    if (userId != null && userId.isNotEmpty) {
+      GoalService.instance.fetchGoalsFromBackend(userId);
+      FinancialProfileService.instance.fetchProfileFromBackend(userId);
+      TransactionService.instance.fetchTransactionsFromBackend(userId);
+    }
   }
 
   @override

@@ -43,6 +43,7 @@ dependencies:
 
   # SHA-256 hashing for password security
   crypto: ^3.0.3
+  http: ^1.6.0
 
 dev_dependencies:
   flutter_test:

@@ -1,6 +1,8 @@
 import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import '../../../core/api/api.dart';
 import '../models/transaction_model.dart';
+import 'transaction_api_service.dart';
 
 /// Result wrapper for transaction operations.
 class TransactionResult {
@@ -77,13 +79,16 @@ TransactionValidationResult validateTransactionInputs({
   );
 }
 
-/// Local persistence service for user transactions.
+/// Persistence service for user transactions.
+/// Integrates with FastAPI backend while maintaining local SharedPreferences fallback.
 class TransactionService extends ChangeNotifier {
   static TransactionService? _instance;
   static TransactionService get instance =>
       _instance ??= TransactionService._();
 
-  TransactionService._();
+  TransactionService._({TransactionApiService? transactionApiService})
+      : _transactionApiService =
+            transactionApiService ?? TransactionApiService();
 
   @visibleForTesting
   static void resetForTesting() {
@@ -92,6 +97,8 @@ class TransactionService extends ChangeNotifier {
 
   static String _keyForUser(String userId) =>
       'goalsync_transactions_$userId';
+
+  final TransactionApiService _transactionApiService;
 
   SharedPreferences? _prefs;
   bool _isInitialized = false;
@@ -106,7 +113,7 @@ class TransactionService extends ChangeNotifier {
     notifyListeners();
   }
 
-  /// Retrieve all transactions for a specific user, sorted newest first.
+  /// Retrieve all transactions for a specific user from local cache, sorted newest first.
   List<TransactionModel> getTransactionsForUser(String userId) {
     final raw = _prefs?.getStringList(_keyForUser(userId)) ?? [];
     return raw
@@ -120,6 +127,24 @@ class TransactionService extends ChangeNotifier {
         .whereType<TransactionModel>()
         .toList()
       ..sort((a, b) => b.dateTime.compareTo(a.dateTime));
+  }
+
+  /// Fetch transactions from backend GET /transactions and synchronize local storage.
+  Future<List<TransactionModel>> fetchTransactionsFromBackend(
+      String userId) async {
+    if (userId.isEmpty) return [];
+    if (ApiClient.instance.authToken == null) {
+      return getTransactionsForUser(userId);
+    }
+
+    try {
+      final backendTx = await _transactionApiService.getTransactions();
+      await _saveTransactions(userId, backendTx);
+      notifyListeners();
+      return backendTx;
+    } catch (_) {
+      return getTransactionsForUser(userId);
+    }
   }
 
   /// Retrieve a specific transaction by id.
@@ -137,6 +162,7 @@ class TransactionService extends ChangeNotifier {
     String userId,
     List<TransactionModel> transactions,
   ) async {
+    if (_prefs == null) await init();
     final list = transactions.map((t) => t.toJson()).toList();
     await _prefs?.setStringList(_keyForUser(userId), list);
   }
@@ -169,20 +195,45 @@ class TransactionService extends ChangeNotifier {
       return TransactionResult.failure(errors);
     }
 
-    final now = DateTime.now();
-    final transaction = TransactionModel(
-      id: 'tx_${now.millisecondsSinceEpoch}',
-      userId: userId,
-      amount: double.parse(amountRaw.trim()),
-      type: type,
-      merchantName: merchantName.trim(),
-      category: category.trim(),
-      dateTime: dateTime!,
-      paymentMethod: paymentMethod,
-      notes: notes?.trim().isEmpty == true ? null : notes?.trim(),
-      createdAt: now,
-      updatedAt: now,
-    );
+    final amount = double.parse(amountRaw.trim());
+    TransactionModel? transaction;
+
+    if (ApiClient.instance.authToken != null) {
+      try {
+        transaction = await _transactionApiService.createTransaction(
+          amount: amount,
+          type: type,
+          merchantName: merchantName.trim(),
+          category: category.trim(),
+          dateTime: dateTime!,
+          paymentMethod: paymentMethod,
+          notes: notes,
+        );
+      } on ApiException catch (e) {
+        if (e.isValidationError || e.isUnauthorized) {
+          return TransactionResult.failure(e.message);
+        }
+      } catch (_) {
+        // Network fallback
+      }
+    }
+
+    if (transaction == null) {
+      final now = DateTime.now();
+      transaction = TransactionModel(
+        id: 'tx_${now.millisecondsSinceEpoch}',
+        userId: userId,
+        amount: amount,
+        type: type,
+        merchantName: merchantName.trim(),
+        category: category.trim(),
+        dateTime: dateTime!,
+        paymentMethod: paymentMethod,
+        notes: notes?.trim().isEmpty == true ? null : notes?.trim(),
+        createdAt: now,
+        updatedAt: now,
+      );
+    }
 
     final current = getTransactionsForUser(userId);
     current.insert(0, transaction);
@@ -221,25 +272,53 @@ class TransactionService extends ChangeNotifier {
       return TransactionResult.failure(errors);
     }
 
+    final amount = double.parse(amountRaw.trim());
+    TransactionModel? updated;
+
+    if (ApiClient.instance.authToken != null) {
+      try {
+        updated = await _transactionApiService.updateTransaction(
+          transactionId: id,
+          amount: amount,
+          type: type,
+          merchantName: merchantName.trim(),
+          category: category.trim(),
+          dateTime: dateTime,
+          paymentMethod: paymentMethod,
+          notes: notes,
+        );
+      } on ApiException catch (e) {
+        if (e.isValidationError || e.isUnauthorized) {
+          return TransactionResult.failure(e.message);
+        }
+      } catch (_) {}
+    }
+
     final current = getTransactionsForUser(userId);
     final index = current.indexWhere((t) => t.id == id);
-    if (index == -1) {
+    if (index == -1 && updated == null) {
       return const TransactionResult.failure('Transaction not found.');
     }
 
-    final existing = current[index];
-    final updated = existing.copyWith(
-      amount: double.parse(amountRaw.trim()),
-      type: type,
-      merchantName: merchantName.trim(),
-      category: category.trim(),
-      dateTime: dateTime,
-      paymentMethod: paymentMethod,
-      notes: notes?.trim().isEmpty == true ? null : notes?.trim(),
-      updatedAt: DateTime.now(),
-    );
+    if (updated == null) {
+      final existing = current[index];
+      updated = existing.copyWith(
+        amount: amount,
+        type: type,
+        merchantName: merchantName.trim(),
+        category: category.trim(),
+        dateTime: dateTime,
+        paymentMethod: paymentMethod,
+        notes: notes?.trim().isEmpty == true ? null : notes?.trim(),
+        updatedAt: DateTime.now(),
+      );
+    }
 
-    current[index] = updated;
+    if (index != -1) {
+      current[index] = updated;
+    } else {
+      current.insert(0, updated);
+    }
     await _saveTransactions(userId, current);
 
     notifyListeners();
@@ -248,6 +327,12 @@ class TransactionService extends ChangeNotifier {
 
   /// Delete a transaction by id.
   Future<bool> deleteTransaction(String userId, String id) async {
+    if (ApiClient.instance.authToken != null) {
+      try {
+        await _transactionApiService.deleteTransaction(id);
+      } catch (_) {}
+    }
+
     final current = getTransactionsForUser(userId);
     final beforeCount = current.length;
     current.removeWhere((t) => t.id == id);

@@ -1,6 +1,8 @@
 import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import '../../../core/api/api.dart';
 import '../models/goal_model.dart';
+import 'goal_api_service.dart';
 
 /// Result object for goal operations.
 class GoalResult {
@@ -75,8 +77,8 @@ GoalValidationResult validateGoalInputs({
   } else {
     final today = DateTime.now();
     final todayMidnight = DateTime(today.year, today.month, today.day);
-    final dateMidnight = DateTime(
-        targetDate.year, targetDate.month, targetDate.day);
+    final dateMidnight =
+        DateTime(targetDate.year, targetDate.month, targetDate.day);
     if (!dateMidnight.isAfter(todayMidnight)) {
       targetDateError = 'Target date must be a future date.';
     }
@@ -90,12 +92,14 @@ GoalValidationResult validateGoalInputs({
   );
 }
 
-/// Local persistence service for user financial goals.
+/// Persistence service for user financial goals.
+/// Integrates with FastAPI backend while maintaining local SharedPreferences fallback.
 class GoalService extends ChangeNotifier {
   static GoalService? _instance;
   static GoalService get instance => _instance ??= GoalService._();
 
-  GoalService._();
+  GoalService._({GoalApiService? goalApiService})
+      : _goalApiService = goalApiService ?? GoalApiService();
 
   @visibleForTesting
   static void resetForTesting() {
@@ -103,6 +107,8 @@ class GoalService extends ChangeNotifier {
   }
 
   static String _keyForUser(String userId) => 'goalsync_goals_$userId';
+
+  final GoalApiService _goalApiService;
 
   SharedPreferences? _prefs;
   bool _isInitialized = false;
@@ -117,7 +123,7 @@ class GoalService extends ChangeNotifier {
     notifyListeners();
   }
 
-  /// Retrieve all goals for a specific user.
+  /// Retrieve all goals for a specific user from local cache.
   List<GoalModel> getGoalsForUser(String userId) {
     final raw = _prefs?.getStringList(_keyForUser(userId)) ?? [];
     return raw
@@ -133,8 +139,26 @@ class GoalService extends ChangeNotifier {
       ..sort((a, b) => b.createdAt.compareTo(a.createdAt));
   }
 
+  /// Fetch goals from backend GET /goals and synchronize local storage.
+  Future<List<GoalModel>> fetchGoalsFromBackend(String userId) async {
+    if (userId.isEmpty) return [];
+    if (ApiClient.instance.authToken == null) {
+      return getGoalsForUser(userId);
+    }
+
+    try {
+      final backendGoals = await _goalApiService.getGoals();
+      await _saveGoals(userId, backendGoals);
+      notifyListeners();
+      return backendGoals;
+    } catch (_) {
+      return getGoalsForUser(userId);
+    }
+  }
+
   /// Save the full goal list for a user.
   Future<void> _saveGoals(String userId, List<GoalModel> goals) async {
+    if (_prefs == null) await init();
     final list = goals.map((g) => g.toJson()).toList();
     await _prefs?.setStringList(_keyForUser(userId), list);
   }
@@ -166,22 +190,50 @@ class GoalService extends ChangeNotifier {
       return GoalResult.failure(errors);
     }
 
-    final now = DateTime.now();
-    final goal = GoalModel(
-      id: 'goal_${now.millisecondsSinceEpoch}',
-      userId: userId,
-      name: name.trim(),
-      category: category,
-      targetAmount: double.parse(targetAmountRaw.trim()),
-      currentAmount: double.parse(currentAmountRaw.trim()),
-      targetDate: targetDate!,
-      priority: priority,
-      createdAt: now,
-      updatedAt: now,
-    );
+    final targetAmount = double.parse(targetAmountRaw.trim());
+    final currentAmount = double.parse(currentAmountRaw.trim());
+
+    GoalModel? goal;
+
+    // 1. If connected to backend, create on backend
+    if (ApiClient.instance.authToken != null) {
+      try {
+        goal = await _goalApiService.createGoal(
+          name: name,
+          category: category,
+          targetAmount: targetAmount,
+          currentAmount: currentAmount,
+          targetDate: targetDate!,
+          priority: priority,
+        );
+      } on ApiException catch (e) {
+        if (e.isValidationError || e.isUnauthorized) {
+          return GoalResult.failure(e.message);
+        }
+      } catch (_) {
+        // Network fallback
+      }
+    }
+
+    // 2. Local fallback if offline or no backend token
+    if (goal == null) {
+      final now = DateTime.now();
+      goal = GoalModel(
+        id: 'goal_${now.millisecondsSinceEpoch}',
+        userId: userId,
+        name: name.trim(),
+        category: category,
+        targetAmount: targetAmount,
+        currentAmount: currentAmount,
+        targetDate: targetDate!,
+        priority: priority,
+        createdAt: now,
+        updatedAt: now,
+      );
+    }
 
     final goals = getGoalsForUser(userId);
-    goals.add(goal);
+    goals.insert(0, goal);
     await _saveGoals(userId, goals);
     notifyListeners();
 
@@ -216,21 +268,53 @@ class GoalService extends ChangeNotifier {
       return GoalResult.failure(errors);
     }
 
+    final targetAmount = double.parse(targetAmountRaw.trim());
+    final currentAmount = double.parse(currentAmountRaw.trim());
+
+    GoalModel? updated;
+
+    if (ApiClient.instance.authToken != null) {
+      try {
+        updated = await _goalApiService.updateGoal(
+          goalId: goalId,
+          name: name,
+          category: category,
+          targetAmount: targetAmount,
+          currentAmount: currentAmount,
+          targetDate: targetDate,
+          priority: priority,
+        );
+      } on ApiException catch (e) {
+        if (e.isValidationError || e.isUnauthorized) {
+          return GoalResult.failure(e.message);
+        }
+      } catch (_) {}
+    }
+
     final goals = getGoalsForUser(userId);
     final idx = goals.indexWhere((g) => g.id == goalId);
-    if (idx == -1) return const GoalResult.failure('Goal not found.');
+    if (idx == -1 && updated == null) {
+      return const GoalResult.failure('Goal not found.');
+    }
 
-    final updated = goals[idx].copyWith(
-      name: name.trim(),
-      category: category,
-      targetAmount: double.parse(targetAmountRaw.trim()),
-      currentAmount: double.parse(currentAmountRaw.trim()),
-      targetDate: targetDate,
-      priority: priority,
-      updatedAt: DateTime.now(),
-    );
+    if (updated == null) {
+      final existing = goals[idx];
+      updated = existing.copyWith(
+        name: name.trim(),
+        category: category,
+        targetAmount: targetAmount,
+        currentAmount: currentAmount,
+        targetDate: targetDate,
+        priority: priority,
+        updatedAt: DateTime.now(),
+      );
+    }
 
-    goals[idx] = updated;
+    if (idx != -1) {
+      goals[idx] = updated;
+    } else {
+      goals.insert(0, updated);
+    }
     await _saveGoals(userId, goals);
     notifyListeners();
 
@@ -238,7 +322,16 @@ class GoalService extends ChangeNotifier {
   }
 
   /// Delete a goal by id.
-  Future<bool> deleteGoal({required String userId, required String goalId}) async {
+  Future<bool> deleteGoal({
+    required String userId,
+    required String goalId,
+  }) async {
+    if (ApiClient.instance.authToken != null) {
+      try {
+        await _goalApiService.deleteGoal(goalId);
+      } catch (_) {}
+    }
+
     final goals = getGoalsForUser(userId);
     final before = goals.length;
     goals.removeWhere((g) => g.id == goalId);

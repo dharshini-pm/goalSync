@@ -195,17 +195,23 @@ class TransactionModel {
 
   factory TransactionModel.fromMap(Map<String, dynamic> map) {
     return TransactionModel(
-      id: map['id'] as String,
-      userId: map['userId'] as String,
-      amount: (map['amount'] as num).toDouble(),
+      id: (map['id'] ?? map['_id'] ?? '').toString(),
+      userId: (map['userId'] ?? '').toString(),
+      amount: (map['amount'] as num?)?.toDouble() ?? 0.0,
       type: TransactionType.fromString(map['type'] as String?),
-      merchantName: map['merchantName'] as String,
+      merchantName: (map['merchantName'] ?? '').toString(),
       category: map['category'] as String? ?? TransactionCategories.other,
-      dateTime: DateTime.parse(map['dateTime'] as String),
+      dateTime: map['dateTime'] != null
+          ? DateTime.tryParse(map['dateTime'].toString()) ?? DateTime.now()
+          : DateTime.now(),
       paymentMethod: PaymentMethod.fromString(map['paymentMethod'] as String?),
       notes: map['notes'] as String?,
-      createdAt: DateTime.parse(map['createdAt'] as String),
-      updatedAt: DateTime.parse(map['updatedAt'] as String),
+      createdAt: map['createdAt'] != null
+          ? DateTime.tryParse(map['createdAt'].toString()) ?? DateTime.now()
+          : DateTime.now(),
+      updatedAt: map['updatedAt'] != null
+          ? DateTime.tryParse(map['updatedAt'].toString()) ?? DateTime.now()
+          : DateTime.now(),
     );
   }
 

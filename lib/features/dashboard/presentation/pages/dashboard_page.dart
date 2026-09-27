@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import '../../../../core/constants/app_colors.dart';
 import '../../../../core/constants/app_dimensions.dart';
+import '../../../ai_copilot/presentation/pages/ai_copilot_page.dart';
+import '../../../ai_copilot/services/ai_insights_service.dart';
 import '../../../auth/services/auth_service.dart';
 import '../../../financial_state/presentation/pages/financial_state_page.dart';
 import '../../../goals/models/goal_model.dart';
@@ -36,12 +38,14 @@ class _DashboardPageState extends State<DashboardPage> {
     GoalService.instance.addListener(_refresh);
     FinancialProfileService.instance.addListener(_refresh);
     TransactionService.instance.addListener(_refresh);
+    AiInsightsService.instance.addListener(_refresh);
 
     final userId = AuthService.instance.currentUser?.id;
     if (userId != null && userId.isNotEmpty) {
       GoalService.instance.fetchGoalsFromBackend(userId);
       FinancialProfileService.instance.fetchProfileFromBackend(userId);
       TransactionService.instance.fetchTransactionsFromBackend(userId);
+      AiInsightsService.instance.refresh();
     }
   }
 
@@ -50,6 +54,7 @@ class _DashboardPageState extends State<DashboardPage> {
     GoalService.instance.removeListener(_refresh);
     FinancialProfileService.instance.removeListener(_refresh);
     TransactionService.instance.removeListener(_refresh);
+    AiInsightsService.instance.removeListener(_refresh);
     super.dispose();
   }
 
@@ -71,11 +76,7 @@ class _DashboardPageState extends State<DashboardPage> {
           ),
           const GoalsPage(),
           const TransactionsPage(),
-          const _PlaceholderModuleView(
-            moduleName: 'AI Copilot',
-            subtitle: 'AI Copilot module coming next',
-            icon: Icons.auto_awesome_rounded,
-          ),
+          const AiCopilotPage(),
           const ProfilePage(),
         ],
       ),
@@ -172,6 +173,9 @@ class _HomeDashboardView extends StatelessWidget {
         FinancialProfileService.instance.isOnboardingCompleted(userId);
     final transactions =
         TransactionService.instance.getTransactionsForUser(userId);
+    final insight = AiInsightsService.instance.latestInsight;
+    final hasConflict = insight?.hasConflict ?? false;
+    final conflicts = insight?.conflicts ?? [];
 
     return SafeArea(
       child: SingleChildScrollView(
@@ -368,16 +372,24 @@ class _HomeDashboardView extends StatelessWidget {
                 ),
                 const SizedBox(height: AppDimensions.space16),
 
+                // AI ANALYSIS SUMMARY (from latest pipeline run)
+                if (insight != null && insight.available) ...
+                  [
+                    _buildAiSummaryCard(
+                      context: context,
+                      isDark: isDark,
+                      insight: insight,
+                      onNavigateToAi: () => {},
+                    ),
+                    const SizedBox(height: AppDimensions.space16),
+                  ],
+
                 // GOAL CONFLICTS
-                _buildModuleCard(
+                _buildGoalConflictsCard(
                   context: context,
                   isDark: isDark,
-                  headerTag: 'GOAL CONFLICTS',
-                  tagColor: AppColors.warning,
-                  icon: Icons.sync_problem_rounded,
-                  message: 'No conflicts detected.',
-                  submessage:
-                      'Goal conflict analysis will appear here once financial data is available.',
+                  hasConflict: hasConflict,
+                  conflicts: conflicts,
                 ),
                 const SizedBox(height: AppDimensions.space24),
               ],
@@ -942,7 +954,186 @@ class _HomeDashboardView extends StatelessWidget {
       ),
     );
   }
+
+  Widget _buildAiSummaryCard({
+    required BuildContext context,
+    required bool isDark,
+    required dynamic insight,
+    required VoidCallback onNavigateToAi,
+  }) {
+    final headline = insight.headline as String? ?? 'Analysis complete';
+    return Container(
+      padding: const EdgeInsets.all(AppDimensions.space16),
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          colors: [
+            AppColors.electricCyan.withAlpha(20),
+            AppColors.mint.withAlpha(12),
+          ],
+        ),
+        borderRadius: BorderRadius.circular(AppDimensions.radiusLg),
+        border: Border.all(color: AppColors.electricCyan.withAlpha(70)),
+        boxShadow: [
+          BoxShadow(
+            color: AppColors.electricCyan.withAlpha(15),
+            blurRadius: 12,
+            offset: const Offset(0, 3),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                width: 5,
+                height: 5,
+                decoration: const BoxDecoration(
+                    shape: BoxShape.circle, color: AppColors.electricCyan),
+              ),
+              const SizedBox(width: 7),
+              const Text(
+                'AI ANALYSIS',
+                style: TextStyle(
+                  fontSize: 10,
+                  fontWeight: FontWeight.w800,
+                  letterSpacing: 1.0,
+                  color: AppColors.electricCyan,
+                ),
+              ),
+              const Spacer(),
+              const Icon(Icons.auto_awesome_rounded,
+                  size: 14, color: AppColors.electricCyan),
+            ],
+          ),
+          const SizedBox(height: AppDimensions.space10),
+          Text(
+            headline,
+            style: TextStyle(
+              fontSize: 14,
+              fontWeight: FontWeight.w700,
+              color: isDark
+                  ? AppColors.textPrimaryDark
+                  : AppColors.textPrimaryLight,
+            ),
+            maxLines: 2,
+            overflow: TextOverflow.ellipsis,
+          ),
+          const SizedBox(height: 6),
+          Text(
+            'Tap AI tab for full multi-agent analysis',
+            style: TextStyle(
+              fontSize: 11,
+              color: isDark
+                  ? AppColors.textTertiaryDark
+                  : AppColors.textTertiaryLight,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildGoalConflictsCard({
+    required BuildContext context,
+    required bool isDark,
+    required bool hasConflict,
+    required List<Map<String, dynamic>> conflicts,
+  }) {
+    if (!hasConflict || conflicts.isEmpty) {
+      return _buildModuleCard(
+        context: context,
+        isDark: isDark,
+        headerTag: 'GOAL CONFLICTS',
+        tagColor: AppColors.mint,
+        icon: Icons.check_circle_outline_rounded,
+        message: 'No conflicts detected.',
+        submessage:
+            'Your active goals are aligned with your financial capacity.',
+      );
+    }
+
+    return Container(
+      padding: const EdgeInsets.all(AppDimensions.space20),
+      decoration: BoxDecoration(
+        color: isDark ? AppColors.darkSurface : AppColors.lightSurface,
+        borderRadius: BorderRadius.circular(AppDimensions.radiusLg),
+        border: Border.all(color: AppColors.warning.withAlpha(120)),
+        boxShadow: [
+          BoxShadow(
+            color: AppColors.warning.withAlpha(20),
+            blurRadius: 10,
+            offset: const Offset(0, 2),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                width: 6,
+                height: 6,
+                decoration: const BoxDecoration(
+                    shape: BoxShape.circle, color: AppColors.warning),
+              ),
+              const SizedBox(width: 8),
+              Text(
+                'GOAL CONFLICTS (${conflicts.length})',
+                style: const TextStyle(
+                  fontSize: 11,
+                  fontWeight: FontWeight.w800,
+                  letterSpacing: 1.0,
+                  color: AppColors.warning,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: AppDimensions.space12),
+          ...conflicts.take(2).map((c) {
+            final desc = (c['description'] as String?) ??
+                (c['message'] as String?) ??
+                'Conflict detected between goals.';
+            return Padding(
+              padding: const EdgeInsets.only(bottom: 8),
+              child: Container(
+                padding: const EdgeInsets.all(10),
+                decoration: BoxDecoration(
+                  color: AppColors.warning.withAlpha(18),
+                  borderRadius: BorderRadius.circular(8),
+                  border: const Border(
+                      left: BorderSide(color: AppColors.warning, width: 3)),
+                ),
+                child: Text(
+                  desc,
+                  style: TextStyle(
+                    fontSize: 12,
+                    height: 1.4,
+                    color: isDark
+                        ? AppColors.textSecondaryDark
+                        : AppColors.textSecondaryLight,
+                  ),
+                ),
+              ),
+            );
+          }),
+          if (conflicts.length > 2)
+            Text(
+              '+ ${conflicts.length - 2} more — see AI tab',
+              style: const TextStyle(
+                fontSize: 12,
+                fontWeight: FontWeight.w600,
+                color: AppColors.warning,
+              ),
+            ),
+        ],
+      ),
+    );
+  }
 }
+
 
 class _FinSummaryTile extends StatelessWidget {
   final String label;
@@ -1093,83 +1284,6 @@ class _GoalMiniRow extends StatelessWidget {
   }
 }
 
-/// Simple placeholder screen for future modules.
-class _PlaceholderModuleView extends StatelessWidget {
-  final String moduleName;
-  final String subtitle;
-  final IconData icon;
-
-  const _PlaceholderModuleView({
-    required this.moduleName,
-    required this.subtitle,
-    required this.icon,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-
-    return Scaffold(
-      backgroundColor:
-          isDark ? AppColors.darkBackground : AppColors.lightBackground,
-      appBar: AppBar(
-        title: Text(moduleName,
-            style:
-                const TextStyle(fontSize: 20, fontWeight: FontWeight.w800)),
-        backgroundColor: Colors.transparent,
-        elevation: 0,
-        centerTitle: false,
-      ),
-      body: Center(
-        child: Padding(
-          padding: const EdgeInsets.all(AppDimensions.space32),
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Container(
-                width: 72,
-                height: 72,
-                decoration: BoxDecoration(
-                  color: isDark
-                      ? AppColors.navyMid
-                      : AppColors.lightSurfaceVariant,
-                  shape: BoxShape.circle,
-                  border: Border.all(
-                      color: AppColors.electricCyan.withAlpha(80)),
-                ),
-                child:
-                    Icon(icon, size: 32, color: AppColors.electricCyan),
-              ),
-              const SizedBox(height: AppDimensions.space20),
-              Text(
-                subtitle,
-                textAlign: TextAlign.center,
-                style: TextStyle(
-                  fontSize: 16,
-                  fontWeight: FontWeight.w700,
-                  color: isDark
-                      ? AppColors.textPrimaryDark
-                      : AppColors.textPrimaryLight,
-                ),
-              ),
-              const SizedBox(height: AppDimensions.space8),
-              Text(
-                'This feature is reserved for subsequent implementation.',
-                textAlign: TextAlign.center,
-                style: TextStyle(
-                  fontSize: 13,
-                  color: isDark
-                      ? AppColors.textSecondaryDark
-                      : AppColors.textSecondaryLight,
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-}
 
 class _TransactionMiniRow extends StatelessWidget {
   final TransactionModel transaction;

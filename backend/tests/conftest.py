@@ -21,5 +21,7 @@ def mock_mongo_database():
          patch("app.routes.auth.get_collection", side_effect=get_mock_coll), \
          patch("app.routes.financial_profiles.get_collection", side_effect=get_mock_coll), \
          patch("app.routes.goals.get_collection", side_effect=get_mock_coll), \
-         patch("app.routes.transactions.get_collection", side_effect=get_mock_coll):
+         patch("app.routes.transactions.get_collection", side_effect=get_mock_coll), \
+         patch("app.pipeline.service.get_collection", side_effect=get_mock_coll), \
+         patch("app.pipeline.user_resolver.get_collection", side_effect=get_mock_coll):
         yield mock_db

@@ -48,3 +48,24 @@ def init_indexes():
     
     # 4. transactions collection indexes
     db.transactions.create_index("userId", name="idx_transactions_userId")
+    db.transactions.create_index(
+        [("userId", 1), ("eventId", 1)],
+        unique=True,
+        sparse=True,
+        name="idx_transactions_userId_eventId_unique"
+    )
+    db.transactions.create_index(
+        [("userId", 1), ("fingerprint", 1)],
+        name="idx_transactions_userId_fingerprint"
+    )
+
+    # 5. transaction_processing_records collection indexes (idempotency & agent execution history)
+    db.transaction_processing_records.create_index(
+        [("userId", 1), ("eventId", 1)],
+        unique=True,
+        name="idx_proc_userId_eventId_unique"
+    )
+    db.transaction_processing_records.create_index(
+        [("userId", 1), ("fingerprint", 1)],
+        name="idx_proc_userId_fingerprint"
+    )

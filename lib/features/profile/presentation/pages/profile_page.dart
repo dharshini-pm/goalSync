@@ -3,6 +3,7 @@ import '../../../../core/constants/app_colors.dart';
 import '../../../../core/constants/app_dimensions.dart';
 import '../../../auth/presentation/pages/login_page.dart';
 import '../../../auth/services/auth_service.dart';
+import '../../../ai_copilot/services/ai_insights_service.dart';
 
 /// Profile Page showing verified account details and session termination.
 class ProfilePage extends StatefulWidget {
@@ -75,6 +76,7 @@ class _ProfilePageState extends State<ProfilePage> {
 
     if (shouldLogout == true && context.mounted) {
       await AuthService.instance.logout();
+      AiInsightsService.instance.clear();
       if (!context.mounted) return;
       // Navigate to Login Page and clear all routes
       Navigator.of(context).pushAndRemoveUntil(

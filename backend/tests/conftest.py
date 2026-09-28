@@ -1,27 +1,30 @@
 import pytest
-import mongomock
-from unittest.mock import patch
+from sqlalchemy import create_engine
+from sqlalchemy.pool import StaticPool
+from app.database import set_engine, reset_engine, init_db, get_database
+from app.models import Base
+
 
 @pytest.fixture(autouse=True)
-def mock_mongo_database():
+def sqlite_test_database():
     """
-    Automated in-memory MongoMock fixture for pytest execution.
-    Ensures unit & integration tests run instantly without external network dependency.
+    Automated in-memory SQLite fixture for pytest execution.
+    Ensures unit & integration tests run isolated, fast, and without network/disk dependencies.
     """
-    mock_client = mongomock.MongoClient()
-    mock_db = mock_client["goalsync"]
-    
-    def get_mock_coll(name: str):
-        return mock_db[name]
-        
-    with patch("app.database.get_client", return_value=mock_client), \
-         patch("app.database.get_database", return_value=mock_db), \
-         patch("app.database.get_collection", side_effect=get_mock_coll), \
-         patch("app.dependencies.get_collection", side_effect=get_mock_coll), \
-         patch("app.routes.auth.get_collection", side_effect=get_mock_coll), \
-         patch("app.routes.financial_profiles.get_collection", side_effect=get_mock_coll), \
-         patch("app.routes.goals.get_collection", side_effect=get_mock_coll), \
-         patch("app.routes.transactions.get_collection", side_effect=get_mock_coll), \
-         patch("app.pipeline.service.get_collection", side_effect=get_mock_coll), \
-         patch("app.pipeline.user_resolver.get_collection", side_effect=get_mock_coll):
-        yield mock_db
+    test_engine = create_engine(
+        "sqlite:///:memory:",
+        connect_args={"check_same_thread": False},
+        poolclass=StaticPool,
+    )
+    set_engine(test_engine)
+    init_db(test_engine)
+    db = get_database()
+    yield db
+    Base.metadata.drop_all(bind=test_engine)
+    reset_engine()
+
+
+@pytest.fixture
+def mock_mongo_database(sqlite_test_database):
+    """Backward compatibility fixture alias for any test expecting mock_mongo_database."""
+    yield sqlite_test_database

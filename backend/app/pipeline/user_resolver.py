@@ -1,13 +1,12 @@
 """User and device resolution service for GoalSync transaction ingestion.
 
-Resolves incoming webhook events to verified GoalSync users in MongoDB Atlas.
+Resolves incoming webhook events to verified GoalSync users in SQLite.
 """
 
 from __future__ import annotations
 
 import os
 from typing import Any, Dict, Optional
-from bson import ObjectId
 from app.database import get_collection
 from app.config import settings
 
@@ -22,7 +21,7 @@ class UserResolverService:
 
     Security & Privacy Rules:
     - Never blindly trusts unverified client input.
-    - Resolves user_id strictly against existing users in the MongoDB Atlas database.
+    - Resolves user_id strictly against existing users in the SQLite database.
     - If device_id is provided, looks up registered device mappings.
     - In development/test environments, controlled user mappings can be enabled via
       explicit configuration (GOALSYNC_ALLOW_DEV_USER_MAPPING=true).
@@ -49,14 +48,14 @@ class UserResolverService:
         user_id: Optional[str] = None,
         device_id: Optional[str] = None,
     ) -> Dict[str, Any]:
-        """Resolves and returns the verified user document from MongoDB Atlas.
+        """Resolves and returns the verified user document from SQLite database.
 
         Raises:
             UserResolutionError: If no valid user can be authenticated/found.
         """
         # 1. Direct user_id lookup if provided
         if user_id:
-            user_doc = self._find_user_by_id(user_id)
+            user_doc = self._find_user_by_id(str(user_id).strip())
             if user_doc:
                 return user_doc
 
@@ -91,13 +90,7 @@ class UserResolverService:
         )
 
     def _find_user_by_id(self, user_id_str: str) -> Optional[Dict[str, Any]]:
-        """Finds user by ObjectId or string ID in the users collection."""
-        try:
-            obj_id = ObjectId(user_id_str)
-            doc = self.users_coll.find_one({"_id": obj_id})
-            if doc:
-                return doc
-        except Exception:
-            pass
-
-        return self.users_coll.find_one({"_id": user_id_str})
+        """Finds user by string ID in the users collection."""
+        if not user_id_str:
+            return None
+        return self.users_coll.find_one({"_id": str(user_id_str).strip()})

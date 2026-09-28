@@ -1,6 +1,5 @@
 from datetime import datetime, timezone
 from fastapi import APIRouter, HTTPException, status
-from bson import ObjectId
 from app.database import get_collection
 from app.schemas.auth import RegisterSchema, LoginSchema, TokenResponse
 from app.schemas.user import UserResponse

@@ -9,7 +9,6 @@ from __future__ import annotations
 import logging
 from typing import Any, Dict, List, Optional
 
-from bson import ObjectId
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel
 
@@ -84,12 +83,12 @@ def get_latest_insight(current_user: dict = Depends(get_current_user)):
     Used by the Flutter AI Copilot tab to surface real LangGraph output.
     Returns `available: false` when no processed records exist yet.
     """
-    user_id_obj = ObjectId(current_user["_id"])
+    user_id = str(current_user["_id"])
     coll = get_collection("transaction_processing_records")
 
     # Most recent PROCESSED record
     record = coll.find_one(
-        {"userId": user_id_obj, "status": "PROCESSED"},
+        {"userId": user_id, "status": "PROCESSED"},
         sort=[("updatedAt", -1)],
     )
 
@@ -134,11 +133,11 @@ def get_insight_history(
             detail="limit must be between 1 and 50",
         )
 
-    user_id_obj = ObjectId(current_user["_id"])
+    user_id = str(current_user["_id"])
     coll = get_collection("transaction_processing_records")
 
     cursor = (
-        coll.find({"userId": user_id_obj})
+        coll.find({"userId": user_id})
         .sort("updatedAt", -1)
         .limit(limit)
     )

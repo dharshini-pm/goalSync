@@ -14,11 +14,9 @@ import math
 import os
 import uuid
 from typing import Any, Dict, List, Optional, Tuple
-from bson import ObjectId
-from pymongo.errors import DuplicateKeyError
 
 from app.config import settings
-from app.database import get_collection
+from app.database import get_collection, DuplicateKeyError
 from app.ingestion.config import IngestionConfig
 from app.ingestion.security import verify_hmac_signature
 from app.orchestration.service import GoalSyncGraphService
@@ -115,15 +113,14 @@ class TransactionPipelineService:
             user_id=event.user_id,
             device_id=event.device_id,
         )
-        user_id_obj = ObjectId(user_doc["_id"])
-        user_id_str = str(user_id_obj)
+        user_id_str = str(user_doc["_id"])
 
         proc_coll = self.get_collection("transaction_processing_records")
         tx_coll = self.get_collection("transactions")
 
         # 2. Check Idempotency / Duplicate Detection
         existing_record = proc_coll.find_one({
-            "userId": user_id_obj,
+            "userId": user_id_str,
             "$or": [
                 {"eventId": event_id},
                 {"fingerprint": event.fingerprint},
@@ -146,14 +143,14 @@ class TransactionPipelineService:
             is_retry = True
             proc_id = existing_record["_id"]
             existing_tx_id = existing_record.get("transactionId")
-            tx_id_obj = ObjectId(existing_tx_id) if existing_tx_id else None
+            tx_id_str = str(existing_tx_id) if existing_tx_id else None
             proc_coll.update_one(
                 {"_id": proc_id},
                 {"$set": {"status": "PROCESSING", "updatedAt": now}},
             )
         else:
             initial_proc = {
-                "userId": user_id_obj,
+                "userId": user_id_str,
                 "eventId": event_id,
                 "fingerprint": event.fingerprint,
                 "status": "PROCESSING",
@@ -164,11 +161,11 @@ class TransactionPipelineService:
             try:
                 proc_res = proc_coll.insert_one(initial_proc)
                 proc_id = proc_res.inserted_id
-                tx_id_obj = None
+                tx_id_str = None
             except DuplicateKeyError:
                 # Concurrent request race condition caught by unique index
                 rec = proc_coll.find_one({
-                    "userId": user_id_obj,
+                    "userId": user_id_str,
                     "$or": [
                         {"eventId": event_id},
                         {"fingerprint": event.fingerprint},
@@ -198,8 +195,8 @@ class TransactionPipelineService:
             except Exception as e:
                 logger.warning("RAG lookup failed: %s", type(e).__name__)
 
-        # 5. Persist Transaction in MongoDB
-        if tx_id_obj is None:
+        # 5. Persist Transaction in SQLite
+        if tx_id_str is None:
             # Parse transaction datetime
             tx_dt = now
             if event.transaction_date:
@@ -211,7 +208,7 @@ class TransactionPipelineService:
                     tx_dt = now
 
             tx_doc = {
-                "userId": user_id_obj,
+                "userId": user_id_str,
                 "amount": float(event.amount),
                 "type": "debit" if event.transaction_type.upper() == "DEBIT" else "credit",
                 "merchantName": merchant_name,
@@ -229,23 +226,23 @@ class TransactionPipelineService:
 
             try:
                 tx_res = tx_coll.insert_one(tx_doc)
-                tx_id_obj = tx_res.inserted_id
+                tx_id_str = str(tx_res.inserted_id)
             except DuplicateKeyError:
                 # Transaction already exists for this eventId
-                existing_tx = tx_coll.find_one({"userId": user_id_obj, "eventId": event_id})
-                tx_id_obj = existing_tx["_id"] if existing_tx else None
+                existing_tx = tx_coll.find_one({"userId": user_id_str, "eventId": event_id})
+                tx_id_str = str(existing_tx["_id"]) if existing_tx else None
 
             # Link transaction ID to processing record
             proc_coll.update_one(
                 {"_id": proc_id},
-                {"$set": {"transactionId": tx_id_obj, "updatedAt": now}},
+                {"$set": {"transactionId": tx_id_str, "updatedAt": now}},
             )
 
-        transaction_id_str = str(tx_id_obj) if tx_id_obj else ""
+        transaction_id_str = str(tx_id_str) if tx_id_str else ""
 
         # 6. Build Deterministic Financial Context for LangGraph
-        fin_snapshot = self._build_financial_snapshot(user_id_obj)
-        goal_inputs = self._build_goal_inputs(user_id_obj, fin_snapshot)
+        fin_snapshot = self._build_financial_snapshot(user_id_str)
+        goal_inputs = self._build_goal_inputs(user_id_str, fin_snapshot)
 
         transaction_input = {
             "merchant": merchant_name,
@@ -359,10 +356,10 @@ class TransactionPipelineService:
             },
         )
 
-    def _build_financial_snapshot(self, user_id_obj: ObjectId) -> Dict[str, Any]:
+    def _build_financial_snapshot(self, user_id: str) -> Dict[str, Any]:
         """Calculates deterministic financial snapshot from user's financial profile."""
         fp_coll = self.get_collection("financial_profiles")
-        profile = fp_coll.find_one({"userId": user_id_obj})
+        profile = fp_coll.find_one({"userId": str(user_id)})
 
         if not profile:
             # Deterministic baseline defaults when user has not completed onboarding
@@ -399,12 +396,12 @@ class TransactionPipelineService:
 
     def _build_goal_inputs(
         self,
-        user_id_obj: ObjectId,
+        user_id: str,
         fin_snapshot: Dict[str, Any],
     ) -> List[Dict[str, Any]]:
         """Constructs deterministic goal inputs for all active user goals."""
         goals_coll = self.get_collection("goals")
-        cursor = goals_coll.find({"userId": user_id_obj}).sort("createdAt", 1)
+        cursor = goals_coll.find({"userId": str(user_id)}).sort("createdAt", 1)
 
         available_monthly = float(fin_snapshot.get("available_monthly_amount", 0.0))
         monthly_surplus = float(fin_snapshot.get("monthly_surplus", 0.0))

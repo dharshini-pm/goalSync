@@ -1,14 +1,14 @@
 from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
-from bson import ObjectId
 from app.database import get_collection
 from app.services.auth_service import decode_access_token
 
 security = HTTPBearer()
 
+
 def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(security)) -> dict:
     """
-    Validates JWT bearer token, verifies user existence in MongoDB Atlas,
+    Validates JWT bearer token, verifies user existence in SQLite database,
     and returns the authenticated user document.
     """
     token = credentials.credentials
@@ -28,9 +28,7 @@ def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(securit
             headers={"WWW-Authenticate": "Bearer"},
         )
 
-    try:
-        user_obj_id = ObjectId(user_id_str)
-    except Exception:
+    if not isinstance(user_id_str, str) or not user_id_str.strip():
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid user ID in token",
@@ -38,7 +36,7 @@ def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(securit
         )
 
     users_collection = get_collection("users")
-    user_doc = users_collection.find_one({"_id": user_obj_id})
+    user_doc = users_collection.find_one({"_id": user_id_str.strip()})
 
     if not user_doc:
         raise HTTPException(

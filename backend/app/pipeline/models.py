@@ -7,15 +7,14 @@ from pydantic import BaseModel, Field, field_validator
 
 
 class ProcessTransactionRequest(BaseModel):
-    """Structured transaction event received from n8n.
+    """Structured transaction event processed by GoalSync AI pipeline.
 
-    Matches the contract produced by Prompt 2's SMS Intelligence / Ingestion layer.
-    Guarantees privacy: Contains only structured financial data, zero raw SMS text.
+    Guarantees privacy: Contains only structured financial data.
     """
-    event_type: str = Field(..., description="Must be 'financial_transaction'")
-    source: str = Field(default="android_sms", description="Source of event (e.g. android_sms)")
+    event_type: str = Field(default="financial_transaction", description="Must be 'financial_transaction'")
+    source: str = Field(default="manual_entry", description="Source of event (e.g. manual_entry)")
     event_id: Optional[str] = Field(default=None, description="Unique idempotency ID for this event")
-    fingerprint: str = Field(..., min_length=8, description="Deterministic SHA-256 fingerprint")
+    fingerprint: Optional[str] = Field(default=None, description="Deterministic SHA-256 fingerprint")
     user_id: Optional[str] = Field(default=None, description="Associated user ID")
     device_id: Optional[str] = Field(default=None, description="Originating device identifier")
     amount: float = Field(..., gt=0.0, description="Transaction amount in currency units")

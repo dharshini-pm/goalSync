@@ -16,13 +16,36 @@ def create_transaction(payload: TransactionCreate, current_user: dict = Depends(
 
     doc = payload.model_dump()
     doc["userId"] = user_id
+    doc["source"] = "manual_entry"
     doc["createdAt"] = now
     doc["updatedAt"] = now
 
     res = coll.insert_one(doc)
     doc["_id"] = str(res.inserted_id)
     doc["userId"] = str(doc["userId"])
+
+    # Optionally trigger multi-agent pipeline background processing for manual entry
+    try:
+        from app.pipeline.models import ProcessTransactionRequest
+        from app.routes.pipeline import get_pipeline_service
+        req = ProcessTransactionRequest(
+            event_type="financial_transaction",
+            source="manual_entry",
+            event_id=f"evt_{doc['_id']}",
+            fingerprint=f"fp_man_{doc['_id']}",
+            user_id=user_id,
+            amount=payload.amount,
+            transaction_type=payload.type.upper(),
+            merchant=payload.merchantName,
+            payment_method=payload.paymentMethod,
+            transaction_date=payload.dateTime.isoformat() if payload.dateTime else None,
+        )
+        get_pipeline_service().process_transaction_event(req)
+    except Exception:
+        pass
+
     return doc
+
 
 
 @router.get("", response_model=List[TransactionResponse])

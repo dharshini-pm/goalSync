@@ -237,7 +237,7 @@ class _AiCopilotPageState extends State<AiCopilotPage> {
         ),
         const SizedBox(height: AppDimensions.space8),
         Text(
-          'GoalSync AI will analyse your financial transactions in real-time as SMS alerts arrive on your device.\n\nOnce a transaction is processed through the 6-agent pipeline, the full analysis will appear here.',
+          'GoalSync AI will analyse your financial transactions in real-time as transactions are recorded.\n\nOnce a transaction is processed through the 6-agent pipeline, the full analysis will appear here.',
           textAlign: TextAlign.center,
           style: TextStyle(
             fontSize: 13,

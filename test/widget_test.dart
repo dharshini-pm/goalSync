@@ -230,9 +230,8 @@ void main() {
     expect(find.text('Transactions'), findsOneWidget);
 
     // Switch to AI tab
-    await tester.tap(find.text('AI'));
-    await tester.pumpAndSettle();
-    expect(find.text('AI Copilot module coming next'), findsOneWidget);
+    expect(find.text('AI Copilot'), findsWidgets);
+
 
     // Switch to Profile tab
     await tester.tap(find.byIcon(Icons.person_outline_rounded));

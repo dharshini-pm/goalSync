@@ -48,14 +48,14 @@ from typing import Any, Dict
 from unittest.mock import MagicMock, patch
 
 import pytest
-from bson import ObjectId
 from fastapi.testclient import TestClient
 
-from app.ingestion.security import compute_hmac_signature
 from app.main import app
 from app.orchestration.state import GraphResult, StageTrace, ErrorRecord
 from app.routes.pipeline import set_pipeline_service
 from app.pipeline.service import TransactionPipelineService
+
+
 
 client = TestClient(app)
 TEST_SECRET = "test-webhook-secret-32-chars-long!"
@@ -138,14 +138,13 @@ def make_mock_graph_result(success: bool = True) -> GraphResult:
 
 
 def sign_payload(payload_dict: Dict[str, Any], secret: str = TEST_SECRET) -> tuple[str, str]:
-    """Serializes payload to JSON and returns (payload_str, hmac_signature)."""
+    """Serializes payload to JSON."""
     payload_str = json.dumps(payload_dict, separators=(",", ":"))
-    signature = compute_hmac_signature(payload_str, secret)
-    return payload_str, signature
+    return payload_str, ""
 
 
 # ===========================================================================
-# TESTS 1 - 6: Endpoint, HMAC, and Validation
+# TESTS 1 - 6: Endpoint and Validation
 # ===========================================================================
 
 def test_1_valid_transaction_accepted():
@@ -154,7 +153,7 @@ def test_1_valid_transaction_accepted():
 
     payload = {
         "event_type": "financial_transaction",
-        "source": "android_sms",
+        "source": "manual_entry",
         "event_id": str(uuid.uuid4()),
         "fingerprint": f"fp_{uuid.uuid4().hex}",
         "user_id": user_id,
@@ -165,13 +164,13 @@ def test_1_valid_transaction_accepted():
         "transaction_date": "2026-09-26T12:00:00Z",
         "confidence": "HIGH",
     }
-    body, sig = sign_payload(payload)
+    body, _ = sign_payload(payload)
 
     with patch("app.orchestration.service.GoalSyncGraphService.run", return_value=make_mock_graph_result(True)):
         res = client.post(
             "/api/v1/process-transaction",
             content=body,
-            headers={"Content-Type": "application/json", "X-GoalSync-Signature": sig},
+            headers={"Content-Type": "application/json"},
         )
         assert res.status_code == 200
         data = res.json()
@@ -181,65 +180,61 @@ def test_1_valid_transaction_accepted():
         assert data["transaction_id"] is not None
 
 
-def test_2_valid_hmac_accepted():
+def test_2_valid_payload_accepted():
     user = create_user("tx2")
     payload = {
         "event_type": "financial_transaction",
-        "source": "android_sms",
+        "source": "manual_entry",
         "event_id": str(uuid.uuid4()),
         "fingerprint": f"fp_{uuid.uuid4().hex}",
         "user_id": user["user"]["_id"],
         "amount": 250.0,
     }
-    body, sig = sign_payload(payload)
+    body, _ = sign_payload(payload)
 
     with patch("app.orchestration.service.GoalSyncGraphService.run", return_value=make_mock_graph_result(True)):
         res = client.post(
             "/api/v1/process-transaction",
             content=body,
-            headers={"Content-Type": "application/json", "X-GoalSync-Signature": sig},
+            headers={"Content-Type": "application/json"},
         )
         assert res.status_code == 200
 
 
-def test_3_invalid_hmac_rejected():
+def test_3_negative_amount_rejected():
     user = create_user("tx3")
     payload = {
         "event_type": "financial_transaction",
         "fingerprint": f"fp_{uuid.uuid4().hex}",
         "user_id": user["user"]["_id"],
-        "amount": 100.0,
+        "amount": -100.0,
     }
-    body, _ = sign_payload(payload, secret="wrong-secret-signature-mismatch!!")
-    fake_sig = "a" * 64
+    body, _ = sign_payload(payload)
 
-    res = client.post(
-        "/api/v1/process-transaction",
-        content=body,
-        headers={"Content-Type": "application/json", "X-GoalSync-Signature": fake_sig},
-    )
-    assert res.status_code == 401
-    assert "Invalid HMAC signature" in res.json()["detail"]
-
-
-def test_4_missing_hmac_rejected():
-    body = json.dumps({"event_type": "financial_transaction", "amount": 100.0})
     res = client.post(
         "/api/v1/process-transaction",
         content=body,
         headers={"Content-Type": "application/json"},
     )
-    assert res.status_code == 401
-    assert "Missing HMAC signature" in res.json()["detail"]
+    assert res.status_code == 422
+
+
+def test_4_non_json_payload_rejected():
+    body = "not json"
+    res = client.post(
+        "/api/v1/process-transaction",
+        content=body,
+        headers={"Content-Type": "application/json"},
+    )
+    assert res.status_code == 422
 
 
 def test_5_malformed_payload_rejected():
     body = "{ invalid json"
-    sig = compute_hmac_signature(body, TEST_SECRET)
     res = client.post(
         "/api/v1/process-transaction",
         content=body,
-        headers={"Content-Type": "application/json", "X-GoalSync-Signature": sig},
+        headers={"Content-Type": "application/json"},
     )
     assert res.status_code == 422
 
@@ -252,13 +247,14 @@ def test_6_unknown_event_type_rejected():
         "user_id": user["user"]["_id"],
         "amount": 100.0,
     }
-    body, sig = sign_payload(payload)
+    body, _ = sign_payload(payload)
     res = client.post(
         "/api/v1/process-transaction",
         content=body,
-        headers={"Content-Type": "application/json", "X-GoalSync-Signature": sig},
+        headers={"Content-Type": "application/json"},
     )
     assert res.status_code == 422
+
 
 
 # ===========================================================================
@@ -417,13 +413,14 @@ def test_11_correct_user_association():
 
 
 def test_12_missing_user_rejected():
-    fake_user_id = str(ObjectId())
+    fake_user_id = f"fake_user_{uuid.uuid4().hex}"
     payload = {
         "event_type": "financial_transaction",
         "fingerprint": f"fp_{uuid.uuid4().hex}",
         "user_id": fake_user_id,
         "amount": 100.0,
     }
+
     body, sig = sign_payload(payload)
     res = client.post("/api/v1/process-transaction", content=body, headers={"X-GoalSync-Signature": sig})
     assert res.status_code == 422
@@ -760,24 +757,24 @@ def test_30_existing_financial_profile_still_works():
 # TESTS 31 - 34: Existing Integration Suites Confirmation
 # ===========================================================================
 
-def test_31_existing_sms_intelligence_still_works():
-    from app.sms_intelligence.detector import SMSDetector
-    from app.sms_intelligence.models import SMSClassification
-    classification, reasons = SMSDetector.classify("Rs 450 debited from a/c XX1234 on 26-Sep-26 to Swiggy UPI")
-    assert classification == SMSClassification.FINANCIAL_TRANSACTION
-
-
-def test_32_existing_ingestion_still_works():
-    from app.ingestion.models import StructuredTransactionEvent
-    event = StructuredTransactionEvent(
-        fingerprint="test_fp_123",
-        amount=100.0,
+def test_31_process_transaction_request_model_works():
+    from app.pipeline.models import ProcessTransactionRequest
+    req = ProcessTransactionRequest(
+        amount=450.0,
+        merchant="SWIGGY",
         transaction_type="DEBIT",
-        merchant="TEST",
     )
-    payload = event.to_n8n_payload()
-    assert payload["amount"] == 100.0
-    assert payload["fingerprint"] == "test_fp_123"
+    assert req.amount == 450.0
+    assert req.merchant == "SWIGGY"
+
+
+def test_32_rag_merchant_resolution_works():
+    from app.rag.service import MerchantHybridResolutionService
+    svc = MerchantHybridResolutionService.create_default()
+    res = svc.resolve("Swiggy")
+    assert res.matched is True
+    assert res.merchant_name == "Swiggy"
+
 
 
 def test_33_existing_agent_models_still_work():

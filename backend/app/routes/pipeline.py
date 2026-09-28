@@ -1,4 +1,5 @@
-"""FastAPI Route for Real-time Transaction Ingestion Pipeline (n8n -> FastAPI -> LangGraph)."""
+"""FastAPI Route for Real-time Transaction Processing Pipeline (FastAPI -> LangGraph)."""
+
 
 from __future__ import annotations
 
@@ -40,25 +41,12 @@ def set_pipeline_service(service: Optional[TransactionPipelineService]) -> None:
     "/api/v1/process-transaction",
     response_model=ProcessTransactionResponse,
     status_code=status.HTTP_200_OK,
-    summary="Process structured financial transaction from n8n webhook",
+    summary="Process structured financial transaction",
 )
 async def process_transaction_endpoint(
     request: Request,
-    x_goalsync_signature: Optional[str] = Header(None, alias="X-GoalSync-Signature"),
-    x_signature: Optional[str] = Header(None, alias="X-Signature"),
 ):
-    """Production endpoint connecting n8n webhook to GoalSync LangGraph multi-agent pipeline.
-
-    Flow:
-    1. Validate HMAC-SHA256 signature using timing-safe comparison
-    2. Validate structured transaction payload (zero raw SMS)
-    3. Resolve & verify user identity against MongoDB Atlas
-    4. Guard against duplicates/concurrency (Idempotent)
-    5. Register transaction in MongoDB
-    6. Execute 6-agent LangGraph orchestration pipeline
-    7. Persist pipeline results to MongoDB
-    8. Return comprehensive structured response
-    """
+    """Production endpoint connecting structured transaction input to GoalSync LangGraph multi-agent pipeline."""
     raw_body_bytes = await request.body()
     try:
         raw_body_str = raw_body_bytes.decode("utf-8")
@@ -68,20 +56,8 @@ async def process_transaction_endpoint(
             detail="Payload must be valid UTF-8 encoded JSON.",
         )
 
-    # 1. HMAC Authentication
-    sig = x_goalsync_signature or x_signature
-    if not sig:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Missing HMAC signature. Required header: X-GoalSync-Signature",
-        )
-
     pipeline_svc = get_pipeline_service()
-    if not pipeline_svc.verify_request_signature(raw_body_str, sig):
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid HMAC signature.",
-        )
+
 
     # 2. Parse & Validate Payload
     try:

@@ -1,8 +1,7 @@
 """Production transaction pipeline service for GoalSync.
 
 Orchestrates:
-n8n Webhook -> HMAC Validation -> User Resolution -> Idempotency Guard ->
-MongoDB Transaction -> Deterministic Financial Context -> LangGraph Multi-Agent -> MongoDB Persistence.
+User Resolution -> Idempotency Guard -> SQLite Transaction -> Deterministic Financial Context -> LangGraph Multi-Agent -> Persistence.
 """
 
 from __future__ import annotations
@@ -17,8 +16,6 @@ from typing import Any, Dict, List, Optional, Tuple
 
 from app.config import settings
 from app.database import get_collection, DuplicateKeyError
-from app.ingestion.config import IngestionConfig
-from app.ingestion.security import verify_hmac_signature
 from app.orchestration.service import GoalSyncGraphService
 from app.rag.service import MerchantHybridResolutionService
 from .models import (
@@ -32,7 +29,7 @@ logger = logging.getLogger("goalsync.pipeline")
 
 
 class TransactionPipelineService:
-    """Production service orchestrating transaction ingestion through LangGraph."""
+    """Production service orchestrating transaction processing through LangGraph."""
 
     def __init__(
         self,
@@ -67,38 +64,6 @@ class TransactionPipelineService:
             return self._db[name]
         return get_collection(name)
 
-    @classmethod
-    def get_configured_hmac_secret(cls) -> Optional[str]:
-        """Resolves the configured HMAC secret from environment variables."""
-        secret = (
-            os.getenv("GOALSYNC_N8N_HMAC_SECRET", "").strip()
-            or getattr(settings, "GOALSYNC_N8N_HMAC_SECRET", "").strip()
-            or os.getenv("GOALSYNC_WEBHOOK_SECRET", "").strip()
-            or IngestionConfig.get_webhook_secret()
-            or ""
-        )
-        return secret if secret else None
-
-    def verify_request_signature(
-        self,
-        payload_body: str,
-        signature: Optional[str],
-    ) -> bool:
-        """Verifies the HMAC-SHA256 signature using constant-time comparison."""
-        secret = self.get_configured_hmac_secret()
-        if not secret or not signature:
-            return False
-
-        # Validate hex signature format (must be 64-char hex for SHA-256)
-        sig_clean = signature.strip().lower()
-        if len(sig_clean) != 64:
-            return False
-        try:
-            int(sig_clean, 16)
-        except ValueError:
-            return False
-
-        return verify_hmac_signature(payload_body, secret, sig_clean)
 
     def process_transaction_event(
         self,

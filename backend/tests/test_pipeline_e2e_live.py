@@ -28,11 +28,9 @@ import pytest
 import requests
 from fastapi.testclient import TestClient
 
-from app.ingestion.security import compute_hmac_signature
 from app.main import app
 
 client = TestClient(app)
-LIVE_TEST_SECRET = "live-test-secret-32-chars-goalsync!"
 
 
 def _is_ollama_available() -> bool:
@@ -56,8 +54,6 @@ OLLAMA_AVAILABLE = _is_ollama_available()
 )
 def test_live_pipeline_e2e_all_six_agents(monkeypatch):
     """Executes live end-to-end transaction processing through all 6 agents."""
-    monkeypatch.setenv("GOALSYNC_N8N_HMAC_SECRET", LIVE_TEST_SECRET)
-    monkeypatch.setenv("GOALSYNC_WEBHOOK_SECRET", LIVE_TEST_SECRET)
 
     # 1. Create a controlled test user
     uid = uuid.uuid4().hex[:8]
@@ -116,7 +112,7 @@ def test_live_pipeline_e2e_all_six_agents(monkeypatch):
     fingerprint = f"fp_live_{uuid.uuid4().hex}"
     event_payload = {
         "event_type": "financial_transaction",
-        "source": "android_sms",
+        "source": "manual_entry",
         "event_id": event_id,
         "fingerprint": fingerprint,
         "user_id": user_id,
@@ -129,7 +125,6 @@ def test_live_pipeline_e2e_all_six_agents(monkeypatch):
         "confidence": "HIGH",
     }
     payload_str = json.dumps(event_payload, separators=(",", ":"))
-    signature = compute_hmac_signature(payload_str, LIVE_TEST_SECRET)
 
     # 5. POST to /api/v1/process-transaction
     res = client.post(
@@ -137,7 +132,6 @@ def test_live_pipeline_e2e_all_six_agents(monkeypatch):
         content=payload_str,
         headers={
             "Content-Type": "application/json",
-            "X-GoalSync-Signature": signature,
         },
     )
     assert res.status_code == 200, f"Live pipeline failed: {res.text}"
@@ -172,9 +166,9 @@ def test_live_pipeline_e2e_all_six_agents(monkeypatch):
         content=payload_str,
         headers={
             "Content-Type": "application/json",
-            "X-GoalSync-Signature": signature,
         },
     )
     assert res_dup.status_code == 200
     assert res_dup.json()["status"] == "duplicate"
     assert res_dup.json()["transaction_id"] == data["transaction_id"]
+

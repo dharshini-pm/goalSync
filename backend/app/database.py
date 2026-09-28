@@ -13,13 +13,17 @@ def get_client() -> MongoClient:
     """
     global _client
     if _client is None:
-        _client = MongoClient(
-            settings.MONGODB_URI,
-            tlsCAFile=certifi.where(),
-            serverSelectionTimeoutMS=5000,
-            connectTimeoutMS=5000,
-            socketTimeoutMS=5000
-        )
+        uri = settings.MONGODB_URI
+        client_kwargs = {
+            "serverSelectionTimeoutMS": 5000,
+            "connectTimeoutMS": 5000,
+            "socketTimeoutMS": 5000
+        }
+        # Only enforce TLS for Atlas (mongodb+srv://) connections, not local
+        if uri.startswith("mongodb+srv://"):
+            client_kwargs["tlsCAFile"] = certifi.where()
+
+        _client = MongoClient(uri, **client_kwargs)
     return _client
 
 def get_database() -> Database:
